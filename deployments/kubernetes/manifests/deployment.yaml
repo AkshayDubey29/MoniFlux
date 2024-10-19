@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: moniflux
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: moniflux
+  template:
+    metadata:
+      labels:
+        app: moniflux
+    spec:
+      containers:
+        - name: api
+          image: akshaydubey29/moniflux-api:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: CONFIG_PATH
+              value: "/configs/config.yaml"
+        - name: loadgen
+          image: akshaydubey29/moniflux-loadgen:latest
+          ports:
+            - containerPort: 9098
+          env:
+            - name: CONFIG_PATH
+              value: "/configs/config.yaml"

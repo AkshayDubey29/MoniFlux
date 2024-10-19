@@ -1,0 +1,14 @@
+apiVersion: v2
+name: moniflux
+description: A Helm chart for MoniFlux
+
+# A list of keywords to help users find your chart
+keywords:
+  - observability
+  - load-testing
+
+# The version of the chart
+version: 0.1.0
+
+# The version of the application
+appVersion: "1.0"

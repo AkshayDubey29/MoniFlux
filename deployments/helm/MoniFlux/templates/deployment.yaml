@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Chart.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Chart.Name }}
+    spec:
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}/moniflux-api:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: 8080
+          env:
+            - name: CONFIG_PATH
+              value: "/configs/config.yaml"
+        - name: loadgen
+          image: "{{ .Values.image.repository }}/moniflux-loadgen:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: 9098
+          env:
+            - name: CONFIG_PATH
+              value: "/configs/config.yaml"

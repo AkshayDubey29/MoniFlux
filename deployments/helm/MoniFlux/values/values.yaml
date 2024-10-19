@@ -1,0 +1,9 @@
+replicaCount: 3
+
+image:
+  repository: akshaydubey29
+  tag: latest
+
+service:
+  type: LoadBalancer
+  port: 80

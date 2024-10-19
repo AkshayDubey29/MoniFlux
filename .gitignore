@@ -1,0 +1,21 @@
+# Binaries
+/bin/
+/pkg/
+/cmd/*
+
+# Logs
+/logs/*
+!.logs/.gitkeep
+
+# Environment variables
+.env
+
+# Go modules
+/go.sum
+
+# IDE directories
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
