@@ -1,0 +1,163 @@
+# configs/config.yaml
+
+# ==============================================================================
+# Server Configuration
+# ==============================================================================
+server:
+  port: "8080"                     # Port on which the API server will run
+  read_timeout: 15                # Maximum duration for reading the entire request, in seconds
+  write_timeout: 15               # Maximum duration before timing out writes of the response, in seconds
+  idle_timeout: 60                # Maximum amount of time to wait for the next request when keep-alives are enabled, in seconds
+
+# ==============================================================================
+# Logging Configuration
+# ==============================================================================
+logging:
+  level: "info"                    # Log level: debug, info, warn, error
+  format: "json"                   # Log format: json, text
+  output: "stdout"                 # Log output destination: stdout, file path (e.g., "/var/log/moniflux/app.log")
+  rotation:
+    enabled: true                   # Enable log rotation
+    max_size_mb: 100                # Maximum size in megabytes before rotation
+    max_backups: 7                  # Maximum number of old log files to retain
+    max_age_days: 30                # Maximum number of days to retain old log files
+    compress: true                  # Compress rotated log files
+
+# ==============================================================================
+# Database Configuration
+# ==============================================================================
+database:
+  mongo:
+    uri: "mongodb://localhost:27017"  # MongoDB connection URI
+    db: "moniflux"                     # MongoDB database name
+    pool_size: 20                      # Connection pool size
+    max_lifetime: 30                   # Max lifetime for connections in minutes
+    timeout_seconds: 10                # Connection timeout in seconds
+
+# ==============================================================================
+# Load Generation Configuration
+# ==============================================================================
+loadgen:
+  log_generation:
+    enabled: true
+    rate_per_second: 100              # Number of logs generated per second
+    log_size_kb: 1                    # Size of each log entry in kilobytes
+    log_types: ["application", "system"]  # Types of logs to generate
+  metrics_generation:
+    enabled: true
+    rate_per_second: 50               # Number of metrics generated per second
+  trace_generation:
+    enabled: true
+    rate_per_second: 20               # Number of traces generated per second
+  duration_minutes: 60                # Default duration for load tests in minutes
+  destinations:
+    - name: "destination1"
+      endpoint: "https://destination1.example.com/api"  # Endpoint for payload delivery
+      port: 443
+      api_key: "your_destination1_api_key_here"         # API key for authentication
+    - name: "destination2"
+      endpoint: "https://destination2.example.com/api"
+      port: 443
+      api_key: "your_destination2_api_key_here"
+
+# ==============================================================================
+# Middleware Configuration
+# ==============================================================================
+middleware:
+  authentication:
+    enabled: true
+    jwt_secret: "your_jwt_secret_here"     # Secret key for JWT authentication (use environment variables or secret managers in production)
+    token_expiry: "24h"                     # JWT token expiry duration (e.g., "24h", "7d")
+  cors:
+    enabled: true
+    allowed_origins:
+      - "https://frontend.example.com"      # Allowed origins for CORS
+      - "https://anotherdomain.com"
+    allowed_methods:
+      - "GET"
+      - "POST"
+      - "PUT"
+      - "DELETE"
+      - "OPTIONS"
+    allowed_headers:
+      - "Content-Type"
+      - "Authorization"
+      - "X-Requested-With"
+    allow_credentials: true                 # Whether to allow credentials (cookies, authorization headers)
+
+# ==============================================================================
+# Security Configuration
+# ==============================================================================
+security:
+  enable_tls: true                          # Enable TLS for secure communication
+  tls_cert_path: "/path/to/cert.pem"        # Path to TLS certificate
+  tls_key_path: "/path/to/key.pem"          # Path to TLS private key
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 1000                # Maximum number of requests per minute per IP
+    burst: 200                               # Burst size for rate limiting
+    cooldown_seconds: 60                     # Cooldown period after rate limit is exceeded
+
+# ==============================================================================
+# Monitoring and Metrics Configuration
+# ==============================================================================
+monitoring:
+  prometheus:
+    enabled: true
+    endpoint: "/metrics"                    # Endpoint to expose Prometheus metrics
+    port: 2112                              # Port for Prometheus metrics
+    namespace: "moniflux"                   # Namespace for Prometheus metrics
+    subsystem: "api_server"                 # Subsystem for Prometheus metrics
+
+# ==============================================================================
+# External Services Configuration
+# ==============================================================================
+services:
+  notification_service:
+    enabled: true
+    endpoint: "https://notification-service.example.com/api"  # Endpoint for notification service
+    api_key: "your_notification_service_api_key"               # API key for authentication
+  analytics_service:
+    enabled: false
+    endpoint: "https://analytics-service.example.com/api"
+    api_key: "your_analytics_service_api_key"
+
+# ==============================================================================
+# Environment Configuration
+# ==============================================================================
+environment: "production"  # Can be 'development', 'staging', 'production'
+
+# ==============================================================================
+# Feature Flags
+# ==============================================================================
+features:
+  enable_debug_mode: false   # Enable or disable debug mode
+  enable_cache: true         # Enable or disable caching
+  beta_features:
+    new_dashboard: false     # Enable or disable access to the new dashboard feature
+    advanced_reports: false  # Enable or disable access to advanced reporting features
+
+# ==============================================================================
+# Caching Configuration
+# ==============================================================================
+cache:
+  type: "redis"                 # Type of cache: redis, in-memory, etc.
+  redis:
+    uri: "redis://localhost:6379"  # Redis connection URI
+    password: ""                   # Redis password, if any
+    db: 0                          # Redis database number
+    pool_size: 20                  # Redis connection pool size
+    idle_timeout: 300s             # Idle timeout for Redis connections
+
+# ==============================================================================
+# Paths Configuration
+# ==============================================================================
+paths:
+  log_file: "/var/log/moniflux/app.log"   # Path to log file (if logging to file)
+  data_dir: "/var/lib/moniflux/data"      # Directory for application data
+  temp_dir: "/tmp/moniflux"               # Temporary directory for application use
+
+# ==============================================================================
+# Additional Configuration Parameters
+# ==============================================================================
+# Add any other configuration parameters as needed below

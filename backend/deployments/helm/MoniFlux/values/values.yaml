@@ -1,0 +1,247 @@
+# deployments/helm/MoniFlux/values.yaml
+
+# ==============================================================================
+# General Configuration
+# ==============================================================================
+replicaCount: 3  # Number of pod replicas to deploy
+
+# ==============================================================================
+# Image Configuration
+# ==============================================================================
+image:
+  repository: "akshaydubey29/moniflux"  # Docker repository for MoniFlux images
+  tag: "latest"                        # Docker image tag
+  pullPolicy: "IfNotPresent"           # Image pull policy: Always, IfNotPresent, Never
+  pullSecrets: []                      # List of image pull secrets for private repositories
+  # Example:
+  # pullSecrets:
+  #   - name: "my-registry-secret"
+
+# ==============================================================================
+# Service Configuration
+# ==============================================================================
+service:
+  type: "LoadBalancer"  # Kubernetes Service type: ClusterIP, NodePort, LoadBalancer
+  port: 80              # Port exposed by the Service
+  targetPorts:
+    api: 8080           # Container port for API
+    loadgen: 9098       # Container port for LoadGen
+
+# ==============================================================================
+# Server Configuration
+# ==============================================================================
+server:
+  port: "8080"           # Port on which the API server will run
+  read_timeout: 15       # Read timeout in seconds
+  write_timeout: 15      # Write timeout in seconds
+  idle_timeout: 60       # Idle timeout in seconds
+
+# ==============================================================================
+# Logging Configuration
+# ==============================================================================
+logging:
+  level: "info"          # Log level: debug, info, warn, error
+  format: "json"         # Log format: json, text
+  output: "stdout"       # Log output destination: stdout, file path (e.g., "/var/log/moniflux/app.log")
+
+# ==============================================================================
+# Database Configuration
+# ==============================================================================
+database:
+  mongodb:
+    enabled: true
+    uri: "mongodb://mongodb:27017"   # MongoDB connection URI (use Helm chart's service name)
+    db: "moniflux"                    # MongoDB database name
+    pool_size: 10                     # Connection pool size
+    max_lifetime: 30                  # Max lifetime for connections in minutes
+  redis:
+    enabled: true
+    uri: "redis://redis-master:6379"  # Redis connection URI (use Helm chart's service name)
+    password: ""                      # Redis password, if any
+    db: 0                             # Redis database number
+    pool_size: 20                     # Redis connection pool size
+    idle_timeout: "300s"              # Idle timeout for Redis connections
+
+# ==============================================================================
+# Load Generation Configuration
+# ==============================================================================
+loadgen:
+  log_generation:
+    enabled: true
+    rate_per_second: 100              # Number of logs generated per second
+    log_size_kb: 1                    # Size of each log entry in kilobytes
+    log_types:
+      - "application"                  # Types of logs to generate
+      - "system"
+  metrics_generation:
+    enabled: true
+    rate_per_second: 50               # Number of metrics generated per second
+  trace_generation:
+    enabled: true
+    rate_per_second: 20               # Number of traces generated per second
+  duration_minutes: 60                # Default duration for load tests in minutes
+  destinations:
+    - name: "destination1"
+      endpoint: "http://destination1.example.com/api"  # Endpoint for payload delivery
+      port: 443
+    - name: "destination2"
+      endpoint: "http://destination2.example.com/api"
+      port: 443
+
+# ==============================================================================
+# Middleware Configuration
+# ==============================================================================
+middleware:
+  authentication:
+    enabled: true
+    jwt_secret: "your_jwt_secret_here"     # Secret key for JWT authentication
+    token_expiry: "24h"                     # JWT token expiry duration
+  cors:
+    allowed_origins:
+      - "https://frontend.example.com"      # Allowed origins for CORS
+      - "https://anotherdomain.com"
+    allowed_methods:
+      - "GET"
+      - "POST"
+      - "PUT"
+      - "DELETE"
+      - "OPTIONS"
+    allowed_headers:
+      - "Content-Type"
+      - "Authorization"
+      - "X-Requested-With"
+    allow_credentials: true                 # Whether to allow credentials
+
+# ==============================================================================
+# Security Configuration
+# ==============================================================================
+security:
+  enable_tls: true                          # Enable TLS for secure communication
+  tls_cert_path: "/certs/tls.crt"           # Path to TLS certificate
+  tls_key_path: "/certs/tls.key"            # Path to TLS private key
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 1000                # Maximum number of requests per minute per IP
+    burst: 200                               # Burst size for rate limiting
+
+# ==============================================================================
+# Monitoring and Metrics Configuration
+# ==============================================================================
+monitoring:
+  prometheus:
+    enabled: true
+    endpoint: "/metrics"                    # Endpoint to expose Prometheus metrics
+    port: 2112                              # Port for Prometheus metrics
+
+# ==============================================================================
+# External Services Configuration
+# ==============================================================================
+services:
+  notification_service:
+    enabled: true
+    endpoint: "http://notification-service.example.com/api"  # Endpoint for notification service
+    api_key: "your_notification_service_api_key"               # API key for authentication
+
+# ==============================================================================
+# Environment Configuration
+# ==============================================================================
+environment: "production"  # Can be 'development', 'staging', 'production'
+
+# ==============================================================================
+# Feature Flags
+# ==============================================================================
+features:
+  enable_debug_mode: false   # Enable or disable debug mode
+  enable_cache: true         # Enable or disable caching
+
+# ==============================================================================
+# Caching Configuration
+# ==============================================================================
+cache:
+  type: "redis"                 # Type of cache: redis, in-memory, etc.
+  redis:
+    uri: "redis://redis-master:6379"  # Redis connection URI (use Helm chart's service name)
+    password: ""                       # Redis password, if any
+    db: 0                              # Redis database number
+    pool_size: 20                      # Redis connection pool size
+    idle_timeout: "300s"               # Idle timeout for Redis connections
+
+# ==============================================================================
+# Paths Configuration
+# ==============================================================================
+paths:
+  log_file: "/var/log/moniflux/app.log"   # Path to log file (if logging to file)
+  data_dir: "/var/lib/moniflux/data"      # Directory for application data
+
+# ==============================================================================
+# Resource Configuration
+# ==============================================================================
+resources:
+  api:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+  loadgen:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+
+# ==============================================================================
+# Image Configuration for LoadGen
+# ==============================================================================
+loadgen:
+  image:
+    repository: "akshaydubey29/moniflux-loadgen"  # Docker repository for LoadGen
+    tag: "latest"
+    pullPolicy: "IfNotPresent"
+
+# ==============================================================================
+# Affinity, Node Selector, and Tolerations
+# ==============================================================================
+affinity: {}  # Define pod affinity/anti-affinity rules here
+
+nodeSelector: {}  # Define node selector labels here
+
+tolerations: []  # Define tolerations here
+
+# ==============================================================================
+# Service Account Configuration
+# ==============================================================================
+serviceAccount:
+  create: true
+  name: ""  # If not set and create is true, a name is generated using the fullname template
+
+# ==============================================================================
+# Persistence Configuration
+# ==============================================================================
+persistence:
+  enabled: true
+  storageClass: "standard"  # Kubernetes StorageClass for dynamic provisioning
+  accessMode: "ReadWriteOnce"  # Access mode for the PersistentVolumeClaim
+  size: "10Gi"                # Size of the PersistentVolumeClaim
+
+# ==============================================================================
+# Additional Environment Variables
+# ==============================================================================
+api:
+  env:
+    - name: ENV_VAR_NAME
+      value: "value"
+    # Add more environment variables as needed
+
+loadgen:
+  env:
+    - name: ENV_VAR_NAME
+      value: "value"
+    # Add more environment variables as needed
+
+# ==============================================================================
+# Additional Configurations
+# ==============================================================================
+# Add any other configuration parameters as needed below

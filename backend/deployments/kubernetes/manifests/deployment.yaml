@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: moniflux
+  labels:
+    app: moniflux
+spec:
+  replicas: 3  # Number of replicas for scalability
+  selector:
+    matchLabels:
+      app: moniflux
+  template:
+    metadata:
+      labels:
+        app: moniflux
+    spec:
+      containers:
+        - name: api
+          image: akshaydubey29/moniflux-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: CONFIG_PATH
+              value: "/configs/config.yaml"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          volumeMounts:
+            - name: config-volume
+              mountPath: /configs
+              readOnly: true
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+
+        - name: loadgen
+          image: akshaydubey29/moniflux-loadgen:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9098
+          env:
+            - name: CONFIG_PATH
+              value: "/configs/config.yaml"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9098
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9098
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          volumeMounts:
+            - name: config-volume
+              mountPath: /configs
+              readOnly: true
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+
+      # Config volume mount
+      volumes:
+        - name: config-volume
+          configMap:
+            name: moniflux-config
+
+      # Pod-level security context
+      securityContext:
+        fsGroup: 2000
+

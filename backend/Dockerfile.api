@@ -1,0 +1,60 @@
+# Dockerfile.api
+
+# Stage 1: Build the Go binary
+FROM golang:1.20-alpine3.17 AS builder
+
+# Install necessary packages for building
+RUN apk update && apk add --no-cache git
+
+# Disable CGO for static binaries
+ENV CGO_ENABLED=0
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy go.mod and go.sum files to the container and download the necessary Go modules
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the rest of the application source code to the container
+COPY . .
+
+# Build the Go application with optimizations
+RUN go build -ldflags="-s -w" -o bin/api cmd/api/main.go
+
+# Stage 2: Create a minimal runtime image for production
+FROM alpine:latest
+
+# Install necessary packages for running the application
+RUN apk --no-cache add ca-certificates curl
+
+# Create a non-root user and group for enhanced security
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Set the working directory for the runtime container
+WORKDIR /app
+
+# Copy the compiled binary from the builder stage to the runtime container
+COPY --from=builder /app/bin/api .
+
+# Copy the configuration file to the runtime container
+COPY configs/config.yaml ./configs/
+
+# Change ownership to non-root user
+RUN chown -R appuser:appgroup /app
+
+# Switch to the non-root user
+USER appuser
+
+# Expose port 8080 for the API service
+EXPOSE 8080
+
+# Define environment variables (override defaults if necessary)
+ENV JWT_SECRET=your_jwt_secret_here
+
+# Define the command to run the API binary when the container starts
+CMD ["./api"]
+
+# Optional: Add Healthcheck
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1

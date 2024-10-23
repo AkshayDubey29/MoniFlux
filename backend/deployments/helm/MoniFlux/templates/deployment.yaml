@@ -1,0 +1,131 @@
+# deployments/helm/MoniFlux/templates/deployment.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "moniflux.fullname" . }}
+  labels:
+    {{- include "moniflux.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "moniflux.name" . }}
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "moniflux.name" . }}
+        release: {{ .Release.Name }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.monitoring.prometheus.port }}"
+    spec:
+      serviceAccountName: {{ include "moniflux.serviceAccountName" . }}
+      securityContext:
+        fsGroup: 2000
+        runAsUser: 1000
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}/moniflux-api:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+              name: api-port
+              protocol: TCP
+          env:
+            - name: CONFIG_PATH
+              value: "/configs/config.yaml"
+            # Additional environment variables can be added here
+            {{- with .Values.api.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources.api | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: config-volume
+              mountPath: /configs
+              readOnly: true
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+        - name: loadgen
+          image: "{{ .Values.image.repository }}/moniflux-loadgen:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 9098
+              name: loadgen-port
+              protocol: TCP
+          env:
+            - name: CONFIG_PATH
+              value: "/configs/config.yaml"
+            # Additional environment variables can be added here
+            {{- with .Values.loadgen.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources.loadgen | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9098
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9098
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: config-volume
+              mountPath: /configs
+              readOnly: true
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ include "moniflux.fullname" . }}-config
+            # Optionally, specify items to include specific keys from the ConfigMap
+            # items:
+            #   - key: config.yaml
+            #     path: config.yaml
+      imagePullSecrets:
+        {{- if .Values.image.pullSecrets }}
+        {{- toYaml .Values.image.pullSecrets | nindent 8 }}
+        {{- end }}
+      affinity:
+        {{- toYaml .Values.affinity | nindent 8 }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1

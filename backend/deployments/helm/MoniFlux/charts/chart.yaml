@@ -1,0 +1,71 @@
+# deployments/helm/MoniFlux/Chart.yaml
+
+apiVersion: v2
+name: moniflux
+description: A Helm chart for MoniFlux, a scalable load generation and observability tool.
+
+# A list of keywords to help users find your chart
+keywords:
+  - observability
+  - load-testing
+  - monitoring
+  - logging
+  - metrics
+  - tracing
+
+# The version of the chart
+# This follows semantic versioning and should be incremented with each chart release
+version: 1.0.0
+
+# The version of the application
+# This should correspond to the version of your MoniFlux application
+appVersion: "1.0.0"
+
+# Type can be 'application' or 'library'
+type: application
+
+# URL to the project home page
+home: "https://github.com/AkshayDubey29/MoniFlux"
+
+# List of source code repositories
+sources:
+  - "https://github.com/AkshayDubey29/MoniFlux"
+
+# List of maintainers
+maintainers:
+  - name: "Akshay Dubey"
+    email: "akshay.dubey@example.com"
+    url: "https://github.com/AkshayDubey29"
+
+# List of dependencies (other Helm charts this chart depends on)
+dependencies:
+  - name: mongodb
+    version: "10.28.1"  # Specify the desired version
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: mongodb.enabled  # Enable/disable via values.yaml
+  - name: redis
+    version: "17.7.1"  # Specify the desired version
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled  # Enable/disable via values.yaml
+
+# Icon for the chart
+# This should be a URL to a PNG or SVG image that represents your application
+icon: "https://raw.githubusercontent.com/AkshayDubey29/MoniFlux/main/docs/icon.png"
+
+# Annotations can provide additional metadata about the chart
+annotations:
+  category: "Observability"
+  "helm.sh/hook": pre-install,pre-upgrade  # Example annotation for Helm hooks
+
+# Optional: Define the API versions that your chart is compatible with
+# Not required for Helm v3, but can be used for documentation purposes
+annotations:
+  "helm.sh/hook": pre-install,pre-upgrade
+
+# Optional: Specify the repository where the chart is hosted
+# Useful if you are distributing the chart via a Helm repository
+repository: "https://your-helm-repo.com/charts"
+
+# Optional: Define the dependencies with more control
+# For Helm v3, dependencies are fully defined in the dependencies section above
+# No need for a separate requirements.yaml

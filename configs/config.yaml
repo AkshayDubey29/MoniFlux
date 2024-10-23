@@ -1,5 +1,0 @@
-api_port: "8080"
-log_level: "info"
-mongo_uri: "mongodb://localhost:27017"
-mongo_db: "moniflux"
-# Add other configuration parameters as needed

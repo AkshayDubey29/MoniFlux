@@ -1,0 +1,49 @@
+# kubernetes/manifest/service.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: moniflux-service
+  labels:
+    app: moniflux
+    tier: backend
+    release: stable
+  annotations:
+    # Prometheus scraping annotations for monitoring
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+
+    # Cloud provider-specific load balancer annotations
+    # Uncomment and modify based on your cloud provider
+
+    # AWS Load Balancer annotations
+    # service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "http"
+    # service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+    # service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "arn:aws:acm:region:account-id:certificate/certificate-id"
+
+    # Google Cloud Load Balancer annotations
+    # cloud.google.com/load-balancer-type: "external"
+
+    # Azure Load Balancer annotations
+    # service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+
+    # Add any other necessary annotations here
+
+spec:
+  type: LoadBalancer
+  selector:
+    app: moniflux
+    tier: backend
+  ports:
+    - name: api
+      protocol: TCP
+      port: 80
+      targetPort: 8080
+    - name: loadgen
+      protocol: TCP
+      port: 9098
+      targetPort: 9098
+  externalTrafficPolicy: Local
+  loadBalancerSourceRanges:
+    - "0.0.0.0/0"  # Restrict access as needed (e.g., specific IP ranges)
+  sessionAffinity: None
