@@ -32,14 +32,14 @@ func LoggingMiddleware(logger *logrus.Logger) func(next http.Handler) http.Handl
 	}
 }
 
-// statusRecorder is a wrapper to capture the HTTP status code
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
-}
+//// statusRecorder is a wrapper to capture the HTTP status code
+//type statusRecorder struct {
+//	http.ResponseWriter
+//	status int
+//}
 
 // WriteHeader captures the status code
-func (rec *statusRecorder) WriteHeader(code int) {
-	rec.status = code
-	rec.ResponseWriter.WriteHeader(code)
-}
+//func (rec *statusRecorder) WriteHeader(code int) {
+//	rec.status = code
+//	rec.ResponseWriter.WriteHeader(code)
+//}

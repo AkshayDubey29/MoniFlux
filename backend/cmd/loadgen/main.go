@@ -1,5 +1,3 @@
-// backend/cmd/loadgen/main.go
-
 package main
 
 import (
@@ -11,7 +9,7 @@ import (
 	"time"
 
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/api/handlers"
-	"github.com/AkshayDubey29/MoniFlux/backend/internal/config/v1"
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/config/utils"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/controllers"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/db/mongo"
 	"github.com/gorilla/mux"
@@ -28,7 +26,7 @@ func main() {
 	logger.SetLevel(logrus.InfoLevel)
 
 	// Load configuration.
-	cfg, err := v1.LoadConfig("config.yaml")
+	cfg, err := utils.LoadConfig("config.yaml")
 	if err != nil {
 		logger.Fatalf("Failed to load config: %v", err)
 	}
@@ -39,13 +37,13 @@ func main() {
 		logger.Fatalf("Failed to initialize MongoDB client: %v", err)
 	}
 	defer func() {
-		if err := mongoClient.Close(); err != nil {
-			logger.Errorf("Failed to close MongoDB client: %v", err)
+		if err := mongoClient.Disconnect(context.Background()); err != nil {
+			logger.Errorf("Failed to disconnect MongoDB client: %v", err)
 		}
 	}()
 
-	// Initialize controller with MongoClient.
-	controller := controllers.NewLoadGenController(cfg, logger, mongoClient)
+	// Initialize controller with MongoClient's internal client.
+	controller := controllers.NewLoadGenController(cfg, logger, mongoClient.Client) // Pass the internal client
 
 	// Initialize handlers.
 	handler := handlers.NewHandler(controller, logger)
@@ -54,13 +52,16 @@ func main() {
 	router := mux.NewRouter()
 
 	// Define routes.
-	router.HandleFunc("/tests", handler.StartTestHandler).Methods("POST")
-	router.HandleFunc("/tests/schedule", handler.ScheduleTestHandler).Methods("POST")
-	router.HandleFunc("/tests/cancel", handler.CancelTestHandler).Methods("POST")
-	router.HandleFunc("/tests/restart", handler.RestartTestHandler).Methods("POST")
-	router.HandleFunc("/tests/results", handler.SaveResultsHandler).Methods("POST")
-	router.HandleFunc("/tests", handler.GetAllTestsHandler).Methods("GET")
-	router.HandleFunc("/tests/{testID}", handler.GetTestByIDHandler).Methods("GET")
+	router.HandleFunc("/tests", handler.StartTest).Methods("POST")
+	router.HandleFunc("/tests/schedule", handler.ScheduleTest).Methods("POST")
+	router.HandleFunc("/tests/cancel", handler.CancelTest).Methods("POST")
+	router.HandleFunc("/tests/restart", handler.RestartTest).Methods("POST")
+	router.HandleFunc("/tests/results", handler.SaveResults).Methods("POST")
+	router.HandleFunc("/tests", handler.GetAllTests).Methods("GET")
+	router.HandleFunc("/tests/{testID}", handler.GetTestByID).Methods("GET")
+
+	// Health Check Endpoint (Unprotected)
+	router.HandleFunc("/health", handlers.HealthCheck).Methods("GET")
 
 	// Start HTTP server.
 	srv := &http.Server{
@@ -84,10 +85,10 @@ func main() {
 	logger.Info("Shutting down server...")
 
 	// Shutdown the server with a timeout.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelShutdown()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(ctxShutdown); err != nil {
 		logger.Fatalf("Server Shutdown Failed:%+v", err)
 	}
 

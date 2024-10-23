@@ -7,32 +7,36 @@ import (
 	"errors"
 	"time"
 
-	"github.com/AkshayDubey29/MoniFlux/backend/internal/config/v1"
-	"github.com/AkshayDubey29/MoniFlux/backend/internal/db/mongo"
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/common"           // Single import without alias
+	mongoDB "github.com/AkshayDubey29/MoniFlux/backend/internal/db/mongo" // Aliased to avoid conflict
 	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	mongoDriver "go.mongodb.org/mongo-driver/mongo" // Aliased for official driver
 )
 
 // AuthorizationService provides methods for managing roles and permissions.
 type AuthorizationService struct {
-	config               *v1.Config
+	config               *common.Config
 	logger               *logrus.Logger
-	mongoClient          *mongo.MongoClient
-	roleCollection       *mongo.Collection
-	permissionCollection *mongo.Collection
+	mongoClient          *mongoDB.MongoClient
+	roleCollection       *mongoDriver.Collection
+	permissionCollection *mongoDriver.Collection
+	userCollection       *mongoDriver.Collection
 }
 
 // NewAuthorizationService creates a new instance of AuthorizationService.
-func NewAuthorizationService(cfg *v1.Config, logger *logrus.Logger, mongoClient *mongo.MongoClient) *AuthorizationService {
-	roleCol := mongoClient.GetCollection("roles")
-	permissionCol := mongoClient.GetCollection("permissions")
+func NewAuthorizationService(cfg *common.Config, logger *logrus.Logger, mongoClient *mongoDB.MongoClient) *AuthorizationService {
+	roleCol := mongoClient.Client.Database(cfg.MongoDB).Collection("roles")
+	permissionCol := mongoClient.Client.Database(cfg.MongoDB).Collection("permissions")
+	userCol := mongoClient.Client.Database(cfg.MongoDB).Collection("users") // Initialize user collection
 	return &AuthorizationService{
 		config:               cfg,
 		logger:               logger,
 		mongoClient:          mongoClient,
 		roleCollection:       roleCol,
 		permissionCollection: permissionCol,
+		userCollection:       userCol,
 	}
 }
 
@@ -44,7 +48,7 @@ func (as *AuthorizationService) CreatePermission(ctx context.Context, name, desc
 	if err == nil {
 		return nil, errors.New("permission already exists")
 	}
-	if err != mongo.ErrNoDocuments {
+	if err != mongoDriver.ErrNoDocuments {
 		as.logger.Errorf("Error checking existing permission: %v", err)
 		return nil, errors.New("internal server error")
 	}
@@ -63,7 +67,13 @@ func (as *AuthorizationService) CreatePermission(ctx context.Context, name, desc
 		return nil, errors.New("internal server error")
 	}
 
-	permission.ID = result.InsertedID.(primitive.ObjectID)
+	// Type assertion with error handling
+	insertedID, ok := result.InsertedID.(primitive.ObjectID)
+	if !ok {
+		as.logger.Errorf("Failed to assert InsertedID to primitive.ObjectID")
+		return nil, errors.New("internal server error")
+	}
+	permission.ID = insertedID
 	as.logger.Infof("Permission created: %s", name)
 	return permission, nil
 }
@@ -73,7 +83,7 @@ func (as *AuthorizationService) GetPermission(ctx context.Context, name string) 
 	var permission Permission
 	err := as.permissionCollection.FindOne(ctx, bson.M{"name": name}).Decode(&permission)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongoDriver.ErrNoDocuments) {
 			return nil, errors.New("permission not found")
 		}
 		as.logger.Errorf("Error retrieving permission: %v", err)
@@ -90,7 +100,7 @@ func (as *AuthorizationService) CreateRole(ctx context.Context, name string, per
 	if err == nil {
 		return nil, errors.New("role already exists")
 	}
-	if err != mongo.ErrNoDocuments {
+	if err != mongoDriver.ErrNoDocuments {
 		as.logger.Errorf("Error checking existing role: %v", err)
 		return nil, errors.New("internal server error")
 	}
@@ -119,7 +129,13 @@ func (as *AuthorizationService) CreateRole(ctx context.Context, name string, per
 		return nil, errors.New("internal server error")
 	}
 
-	role.ID = result.InsertedID.(primitive.ObjectID)
+	// Type assertion with error handling
+	insertedID, ok := result.InsertedID.(primitive.ObjectID)
+	if !ok {
+		as.logger.Errorf("Failed to assert InsertedID to primitive.ObjectID for role %s", name)
+		return nil, errors.New("internal server error")
+	}
+	role.ID = insertedID
 	as.logger.Infof("Role created: %s", name)
 	return role, nil
 }
@@ -129,7 +145,7 @@ func (as *AuthorizationService) GetRole(ctx context.Context, name string) (*Role
 	var role Role
 	err := as.roleCollection.FindOne(ctx, bson.M{"name": name}).Decode(&role)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongoDriver.ErrNoDocuments) {
 			return nil, errors.New("role not found")
 		}
 		as.logger.Errorf("Error retrieving role: %v", err)
@@ -141,6 +157,13 @@ func (as *AuthorizationService) GetRole(ctx context.Context, name string) (*Role
 // AssignRoleToUser assigns a role to a user.
 // Assumes that the User model has a 'Roles' field which is a slice of ObjectIDs referencing roles.
 func (as *AuthorizationService) AssignRoleToUser(ctx context.Context, userID string, roleName string) error {
+	// Convert userID to ObjectID
+	userObjectID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		as.logger.Errorf("Invalid userID format: %v", err)
+		return errors.New("invalid user ID format")
+	}
+
 	// Fetch the role by name.
 	role, err := as.GetRole(ctx, roleName)
 	if err != nil {
@@ -148,8 +171,7 @@ func (as *AuthorizationService) AssignRoleToUser(ctx context.Context, userID str
 	}
 
 	// Update the user's roles.
-	userCol := as.mongoClient.GetCollection("users")
-	filter := bson.M{"_id": primitive.ObjectIDFromHex(userID)}
+	filter := bson.M{"_id": userObjectID}
 	update := bson.M{
 		"$addToSet": bson.M{
 			"roles": role.ID,
@@ -159,7 +181,7 @@ func (as *AuthorizationService) AssignRoleToUser(ctx context.Context, userID str
 		},
 	}
 
-	result, err := userCol.UpdateOne(ctx, filter, update)
+	result, err := as.userCollection.UpdateOne(ctx, filter, update)
 	if err != nil {
 		as.logger.Errorf("Error assigning role to user: %v", err)
 		return errors.New("internal server error")
@@ -175,6 +197,13 @@ func (as *AuthorizationService) AssignRoleToUser(ctx context.Context, userID str
 
 // RemoveRoleFromUser removes a role from a user.
 func (as *AuthorizationService) RemoveRoleFromUser(ctx context.Context, userID string, roleName string) error {
+	// Convert userID to ObjectID
+	userObjectID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		as.logger.Errorf("Invalid userID format: %v", err)
+		return errors.New("invalid user ID format")
+	}
+
 	// Fetch the role by name.
 	role, err := as.GetRole(ctx, roleName)
 	if err != nil {
@@ -182,8 +211,7 @@ func (as *AuthorizationService) RemoveRoleFromUser(ctx context.Context, userID s
 	}
 
 	// Update the user's roles.
-	userCol := as.mongoClient.GetCollection("users")
-	filter := bson.M{"_id": primitive.ObjectIDFromHex(userID)}
+	filter := bson.M{"_id": userObjectID}
 	update := bson.M{
 		"$pull": bson.M{
 			"roles": role.ID,
@@ -193,7 +221,7 @@ func (as *AuthorizationService) RemoveRoleFromUser(ctx context.Context, userID s
 		},
 	}
 
-	result, err := userCol.UpdateOne(ctx, filter, update)
+	result, err := as.userCollection.UpdateOne(ctx, filter, update)
 	if err != nil {
 		as.logger.Errorf("Error removing role from user: %v", err)
 		return errors.New("internal server error")
@@ -209,6 +237,13 @@ func (as *AuthorizationService) RemoveRoleFromUser(ctx context.Context, userID s
 
 // UserHasPermission checks if a user has a specific permission.
 func (as *AuthorizationService) UserHasPermission(ctx context.Context, userID string, permissionName string) (bool, error) {
+	// Convert userID to ObjectID
+	userObjectID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		as.logger.Errorf("Invalid userID format: %v", err)
+		return false, errors.New("invalid user ID format")
+	}
+
 	// Fetch the permission by name.
 	permission, err := as.GetPermission(ctx, permissionName)
 	if err != nil {
@@ -216,11 +251,10 @@ func (as *AuthorizationService) UserHasPermission(ctx context.Context, userID st
 	}
 
 	// Fetch the user and populate roles.
-	userCol := as.mongoClient.GetCollection("users")
 	var user User
-	err = userCol.FindOne(ctx, bson.M{"_id": primitive.ObjectIDFromHex(userID)}).Decode(&user)
+	err = as.userCollection.FindOne(ctx, bson.M{"_id": userObjectID}).Decode(&user)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongoDriver.ErrNoDocuments) {
 			return false, errors.New("user not found")
 		}
 		as.logger.Errorf("Error retrieving user: %v", err)
@@ -233,8 +267,7 @@ func (as *AuthorizationService) UserHasPermission(ctx context.Context, userID st
 	}
 
 	// Fetch roles and check for the permission.
-	roleCol := as.roleCollection
-	cursor, err := roleCol.Find(ctx, bson.M{"_id": bson.M{"$in": user.Roles}})
+	cursor, err := as.roleCollection.Find(ctx, bson.M{"_id": bson.M{"$in": user.Roles}})
 	if err != nil {
 		as.logger.Errorf("Error fetching user roles: %v", err)
 		return false, errors.New("internal server error")
@@ -291,14 +324,19 @@ func (as *AuthorizationService) CreateDefaultRoles(ctx context.Context) error {
 		// Check if permission exists.
 		var existing Permission
 		err := as.permissionCollection.FindOne(ctx, bson.M{"name": perm.Name}).Decode(&existing)
-		if err == mongo.ErrNoDocuments {
+		if err == mongoDriver.ErrNoDocuments {
 			// Insert the permission.
 			result, err := as.permissionCollection.InsertOne(ctx, perm)
 			if err != nil {
 				as.logger.Errorf("Error inserting default permission %s: %v", perm.Name, err)
 				return err
 			}
-			perm.ID = result.InsertedID.(primitive.ObjectID)
+			insertedID, ok := result.InsertedID.(primitive.ObjectID)
+			if !ok {
+				as.logger.Errorf("Failed to assert InsertedID to primitive.ObjectID for permission %s", perm.Name)
+				return errors.New("internal server error")
+			}
+			perm.ID = insertedID
 			as.logger.Infof("Default permission created: %s", perm.Name)
 		} else if err != nil {
 			as.logger.Errorf("Error checking default permission %s: %v", perm.Name, err)
@@ -343,7 +381,7 @@ func (as *AuthorizationService) CreateDefaultRoles(ctx context.Context) error {
 		// Check if role exists.
 		var existing Role
 		err := as.roleCollection.FindOne(ctx, bson.M{"name": roleDef.Name}).Decode(&existing)
-		if err == mongo.ErrNoDocuments {
+		if err == mongoDriver.ErrNoDocuments {
 			// Create the role.
 			role, err := as.CreateRole(ctx, roleDef.Name, roleDef.Permissions)
 			if err != nil {

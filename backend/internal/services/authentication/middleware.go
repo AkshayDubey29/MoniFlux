@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/AkshayDubey29/MoniFlux/backend/internal/api/models"
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/common"
 	"github.com/sirupsen/logrus"
 )
 
@@ -68,7 +68,7 @@ func (am *AuthMiddleware) MiddlewareFunc(next http.Handler) http.Handler {
 
 // GetUserFromContext retrieves the authenticated user from the request context.
 // Returns the User and a boolean indicating whether the user was found.
-func GetUserFromContext(ctx context.Context) (*models.User, bool) {
-	user, ok := ctx.Value("user").(*models.User)
+func GetUserFromContext(ctx context.Context) (*common.User, bool) {
+	user, ok := ctx.Value("user").(*common.User)
 	return user, ok
 }

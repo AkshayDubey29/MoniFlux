@@ -9,30 +9,38 @@ import (
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/api/middlewares"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/common"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/controllers"
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/services/authentication" // Added import for AuthenticationService
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 )
 
 // SetupRouter initializes the router with all necessary routes and middlewares.
 // Parameters:
 // - logger: Instance of logrus.Logger for logging purposes.
 // - controller: Instance of LoadGenController to handle business logic.
+// - authService: Instance of AuthenticationService to handle authentication.
 // - config: Application configuration containing settings for middlewares.
-func SetupRouter(logger *logrus.Logger, controller *controllers.LoadGenController, config *common.Config) *mux.Router {
+func SetupRouter(logger *logrus.Logger, controller *controllers.LoadGenController, authService *authentication.AuthenticationService, config *common.Config) *mux.Router {
 	router := mux.NewRouter().StrictSlash(true)
 
 	// Initialize middlewares
 	requestIDMiddleware := middlewares.RequestIDMiddleware
 	recoveryMiddleware := middlewares.RecoveryMiddleware(logger)
 	loggingMiddleware := middlewares.LoggingMiddleware(logger)
-	authMiddleware := middlewares.AuthMiddleware(config.JWTSecret, logger)
+	// Initialize AuthMiddleware with AuthenticationService and logger
+	authMiddleware := middlewares.NewAuthMiddleware(authService, logger).MiddlewareFunc
+	// Initialize CORSMiddleware with AllowedOrigins and logger
 	corsMiddleware := middlewares.CORSMiddleware(config.AllowedOrigins, logger)
 
 	// Setup Rate Limiter
 	// rate.Every defines the interval between events, so we calculate it based on RequestsPerMinute
 	// For example, 60 requests per minute => 1 request per second
-	rateLimit := rate.Every(time.Minute / time.Duration(config.RateLimit.RequestsPerMinute))
-	limiter := rate.NewLimiter(rateLimit, config.RateLimit.Burst)
-	rateLimitMiddleware := middlewares.RateLimitMiddleware(limiter, logger)
+	rateLimitInterval := rate.Every(time.Minute / time.Duration(config.RateLimit.RequestsPerMinute))
+	// Initialize RateLimiter with rate limit, burst size, and logger
+	rateLimiter := middlewares.NewRateLimiter(rateLimitInterval, config.RateLimit.Burst, logger)
+	// Initialize RateLimitMiddleware with the RateLimiter instance
+	rateLimitMiddleware := middlewares.RateLimitMiddleware(rateLimiter)
 
 	// Initialize Metrics Middleware
 	metrics := middlewares.NewMetrics()

@@ -9,7 +9,7 @@ import (
 
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/api/models"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/controllers"
-	validator "github.com/go-playground/validator/v10"
+	validator "github.com/go-playground/validator/v10" // Aliased import for clarity
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 	mongoDriver "go.mongodb.org/mongo-driver/mongo"
@@ -31,12 +31,12 @@ func NewHandler(controller *controllers.LoadGenController, logger *logrus.Logger
 	}
 }
 
-// StartTestHandler handles the initiation of a new load test.
-func (h *Handler) StartTestHandler(w http.ResponseWriter, r *http.Request) {
+// StartTest handles the initiation of a new load test.
+func (h *Handler) StartTest(w http.ResponseWriter, r *http.Request) {
 	var test models.Test
 	if err := json.NewDecoder(r.Body).Decode(&test); err != nil {
 		h.Logger.Errorf("Failed to decode test: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
 
@@ -50,6 +50,7 @@ func (h *Handler) StartTestHandler(w http.ResponseWriter, r *http.Request) {
 				Message: err.Tag(),
 			})
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(validationErrors)
 		return
@@ -63,16 +64,17 @@ func (h *Handler) StartTestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Respond with the created test.
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(test)
 }
 
-// ScheduleTestHandler handles scheduling a load test.
-func (h *Handler) ScheduleTestHandler(w http.ResponseWriter, r *http.Request) {
+// ScheduleTest handles scheduling a load test.
+func (h *Handler) ScheduleTest(w http.ResponseWriter, r *http.Request) {
 	var schedule models.ScheduleRequest
 	if err := json.NewDecoder(r.Body).Decode(&schedule); err != nil {
 		h.Logger.Errorf("Failed to decode schedule request: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
 
@@ -86,6 +88,7 @@ func (h *Handler) ScheduleTestHandler(w http.ResponseWriter, r *http.Request) {
 				Message: err.Tag(),
 			})
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(validationErrors)
 		return
@@ -99,16 +102,17 @@ func (h *Handler) ScheduleTestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Respond with the scheduled request.
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(schedule)
 }
 
-// CancelTestHandler handles cancelling a load test.
-func (h *Handler) CancelTestHandler(w http.ResponseWriter, r *http.Request) {
+// CancelTest handles cancelling a load test.
+func (h *Handler) CancelTest(w http.ResponseWriter, r *http.Request) {
 	var cancelReq models.CancelRequest
 	if err := json.NewDecoder(r.Body).Decode(&cancelReq); err != nil {
 		h.Logger.Errorf("Failed to decode cancel request: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
 
@@ -122,13 +126,15 @@ func (h *Handler) CancelTestHandler(w http.ResponseWriter, r *http.Request) {
 				Message: err.Tag(),
 			})
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(validationErrors)
 		return
 	}
 
 	// Cancel the test using the controller.
-	if err := h.Controller.CancelTest(r.Context(), cancelReq.TestID); err != nil {
+	err := h.Controller.CancelTest(r.Context(), cancelReq.TestID)
+	if err != nil {
 		if errors.Is(err, mongoDriver.ErrNoDocuments) {
 			http.Error(w, "Test not found", http.StatusNotFound)
 			return
@@ -139,16 +145,17 @@ func (h *Handler) CancelTestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Respond with a success message.
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
 }
 
-// RestartTestHandler handles restarting a load test.
-func (h *Handler) RestartTestHandler(w http.ResponseWriter, r *http.Request) {
+// RestartTest handles restarting a load test.
+func (h *Handler) RestartTest(w http.ResponseWriter, r *http.Request) {
 	var restartReq models.RestartRequest
 	if err := json.NewDecoder(r.Body).Decode(&restartReq); err != nil {
 		h.Logger.Errorf("Failed to decode restart request: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
 
@@ -162,6 +169,7 @@ func (h *Handler) RestartTestHandler(w http.ResponseWriter, r *http.Request) {
 				Message: err.Tag(),
 			})
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(validationErrors)
 		return
@@ -175,16 +183,17 @@ func (h *Handler) RestartTestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Respond with the restarted request.
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(restartReq)
 }
 
-// SaveResultsHandler handles saving the results of a load test.
-func (h *Handler) SaveResultsHandler(w http.ResponseWriter, r *http.Request) {
+// SaveResults handles saving the results of a load test.
+func (h *Handler) SaveResults(w http.ResponseWriter, r *http.Request) {
 	var results models.TestResults
 	if err := json.NewDecoder(r.Body).Decode(&results); err != nil {
 		h.Logger.Errorf("Failed to decode test results: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
 
@@ -198,6 +207,7 @@ func (h *Handler) SaveResultsHandler(w http.ResponseWriter, r *http.Request) {
 				Message: err.Tag(),
 			})
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(validationErrors)
 		return
@@ -211,12 +221,13 @@ func (h *Handler) SaveResultsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Respond with the saved results.
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(results)
 }
 
-// GetAllTestsHandler retrieves all active and scheduled tests.
-func (h *Handler) GetAllTestsHandler(w http.ResponseWriter, r *http.Request) {
+// GetAllTests handles retrieving all active and scheduled tests.
+func (h *Handler) GetAllTests(w http.ResponseWriter, r *http.Request) {
 	tests, err := h.Controller.GetAllTests(r.Context())
 	if err != nil {
 		h.Logger.Errorf("Failed to get all tests: %v", err)
@@ -225,14 +236,20 @@ func (h *Handler) GetAllTestsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Respond with the list of tests.
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(tests)
 }
 
-// GetTestByIDHandler retrieves a specific test by its TestID.
-func (h *Handler) GetTestByIDHandler(w http.ResponseWriter, r *http.Request) {
+// GetTestByID handles retrieving a specific test by its TestID.
+func (h *Handler) GetTestByID(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	testID := vars["testID"]
+	testID, exists := vars["testID"]
+	if !exists {
+		h.Logger.Errorf("TestID not provided in URL")
+		http.Error(w, "TestID is required", http.StatusBadRequest)
+		return
+	}
 
 	test, err := h.Controller.GetTestByID(r.Context(), testID)
 	if err != nil {
@@ -246,6 +263,13 @@ func (h *Handler) GetTestByIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Respond with the test details.
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(test)
+}
+
+// HealthCheck handles the /health endpoint.
+func HealthCheck(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
 }

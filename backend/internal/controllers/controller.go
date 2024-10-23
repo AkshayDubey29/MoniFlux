@@ -9,18 +9,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AkshayDubey29/MoniFlux/backend/internal/config/v1"
-	"github.com/AkshayDubey29/MoniFlux/backend/internal/db/mongo"
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/api/models"
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/common"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	mongoDriver "go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // LoadGenController manages load generation operations.
 type LoadGenController struct {
-	Config      *v1.Config
+	Config      *common.Config
 	Logger      *logrus.Logger
-	MongoClient *mongo.MongoClient
+	MongoClient *mongo.Client
 
 	mu    sync.Mutex
 	tests map[string]*TestTask
@@ -32,7 +32,7 @@ type TestTask struct {
 }
 
 // NewLoadGenController creates a new LoadGenController.
-func NewLoadGenController(cfg *v1.Config, log *logrus.Logger, mongoClient *mongo.MongoClient) *LoadGenController {
+func NewLoadGenController(cfg *common.Config, log *logrus.Logger, mongoClient *mongo.Client) *LoadGenController {
 	return &LoadGenController{
 		Config:      cfg,
 		Logger:      log,
@@ -57,7 +57,8 @@ func (c *LoadGenController) StartTest(ctx context.Context, test *models.Test) er
 	test.UpdatedAt = time.Now()
 
 	// Insert the test into the database.
-	if _, err := c.MongoClient.InsertOne(ctx, "tests", test); err != nil {
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
+	if _, err := collection.InsertOne(ctx, test); err != nil {
 		c.Logger.Errorf("Failed to insert test into database: %v", err)
 		return err
 	}
@@ -122,7 +123,8 @@ func (c *LoadGenController) generateLog(ctx context.Context, test *models.Test) 
 		Level:     "INFO",
 	}
 
-	if _, err := c.MongoClient.InsertOne(ctx, "logs", logEntry); err != nil {
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("logs")
+	if _, err := collection.InsertOne(ctx, logEntry); err != nil {
 		return err
 	}
 
@@ -140,7 +142,8 @@ func (c *LoadGenController) generateMetric(ctx context.Context, test *models.Tes
 		Value:     42.0, // Example metric value
 	}
 
-	if _, err := c.MongoClient.InsertOne(ctx, "metrics", metric); err != nil {
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("metrics")
+	if _, err := collection.InsertOne(ctx, metric); err != nil {
 		return err
 	}
 
@@ -159,7 +162,8 @@ func (c *LoadGenController) generateTrace(ctx context.Context, test *models.Test
 		SpanID:    uuid.New().String(),
 	}
 
-	if _, err := c.MongoClient.InsertOne(ctx, "traces", trace); err != nil {
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("traces")
+	if _, err := collection.InsertOne(ctx, trace); err != nil {
 		return err
 	}
 
@@ -169,6 +173,7 @@ func (c *LoadGenController) generateTrace(ctx context.Context, test *models.Test
 
 // updateTestStatus updates the status of a test in the database.
 func (c *LoadGenController) updateTestStatus(ctx context.Context, testID, status string) error {
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
 	filter := map[string]interface{}{
 		"testID": testID,
 	}
@@ -176,11 +181,11 @@ func (c *LoadGenController) updateTestStatus(ctx context.Context, testID, status
 		"$set": map[string]interface{}{
 			"status":      status,
 			"updatedAt":   time.Now(),
-			"completedAt": time.Now(),
+			"completedAt": time.Now(), // Ensure 'completedAt' is a valid time.Time value
 		},
 	}
 
-	if _, err := c.MongoClient.UpdateOne(ctx, "tests", filter, update); err != nil {
+	if _, err := collection.UpdateOne(ctx, filter, update); err != nil {
 		c.Logger.Errorf("Failed to update status for test %s: %v", testID, err)
 		return err
 	}
@@ -195,11 +200,12 @@ func (c *LoadGenController) ScheduleTest(ctx context.Context, schedule *models.S
 	defer c.mu.Unlock()
 
 	var test models.Test
-	err := c.MongoClient.FindOne(ctx, "tests", map[string]interface{}{
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
+	err := collection.FindOne(ctx, map[string]interface{}{
 		"testID": schedule.TestID,
-	}, &test)
+	}).Decode(&test)
 	if err != nil {
-		if errors.Is(err, mongoDriver.ErrNoDocuments) {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return fmt.Errorf("test with ID %s not found", schedule.TestID)
 		}
 		return err
@@ -216,7 +222,7 @@ func (c *LoadGenController) ScheduleTest(ctx context.Context, schedule *models.S
 			"updatedAt":     time.Now(),
 		},
 	}
-	if _, err = c.MongoClient.UpdateOne(ctx, "tests", map[string]interface{}{
+	if _, err = collection.UpdateOne(ctx, map[string]interface{}{
 		"testID": schedule.TestID,
 	}, update); err != nil {
 		return err
@@ -237,9 +243,10 @@ func (c *LoadGenController) scheduleTestExecution(ctx context.Context, testID st
 		defer c.mu.Unlock()
 
 		var test models.Test
-		err := c.MongoClient.FindOne(ctx, "tests", map[string]interface{}{
+		collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
+		err := collection.FindOne(ctx, map[string]interface{}{
 			"testID": testID,
-		}, &test)
+		}).Decode(&test)
 		if err != nil {
 			c.Logger.Errorf("Failed to retrieve test %s for scheduled start: %v", testID, err)
 			return
@@ -271,6 +278,7 @@ func (c *LoadGenController) CancelTest(ctx context.Context, testID string) error
 	}
 
 	// Cancel scheduled tests.
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
 	filter := map[string]interface{}{
 		"testID": testID,
 		"status": "Scheduled",
@@ -282,7 +290,7 @@ func (c *LoadGenController) CancelTest(ctx context.Context, testID string) error
 		},
 	}
 
-	result, err := c.MongoClient.UpdateOne(ctx, "tests", filter, update)
+	result, err := collection.UpdateOne(ctx, filter, update)
 	if err != nil {
 		c.Logger.Errorf("Failed to cancel scheduled test %s: %v", testID, err)
 		return err
@@ -302,11 +310,12 @@ func (c *LoadGenController) RestartTest(ctx context.Context, restartReq *models.
 	defer c.mu.Unlock()
 
 	var test models.Test
-	err := c.MongoClient.FindOne(ctx, "tests", map[string]interface{}{
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
+	err := collection.FindOne(ctx, map[string]interface{}{
 		"testID": restartReq.TestID,
-	}, &test)
+	}).Decode(&test)
 	if err != nil {
-		if errors.Is(err, mongoDriver.ErrNoDocuments) {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return fmt.Errorf("test with ID %s not found", restartReq.TestID)
 		}
 		return err
@@ -329,7 +338,7 @@ func (c *LoadGenController) RestartTest(ctx context.Context, restartReq *models.
 		update := map[string]interface{}{
 			"$set": updateFields,
 		}
-		if _, err := c.MongoClient.UpdateOne(ctx, "tests", map[string]interface{}{
+		if _, err := collection.UpdateOne(ctx, map[string]interface{}{
 			"testID": restartReq.TestID,
 		}, update); err != nil {
 			return fmt.Errorf("failed to update test configurations: %w", err)
@@ -342,15 +351,16 @@ func (c *LoadGenController) RestartTest(ctx context.Context, restartReq *models.
 			"status":      "Running",
 			"updatedAt":   time.Now(),
 			"createdAt":   time.Now(),
-			"completedAt": nil,
+			"completedAt": time.Time{}, // Using zero value instead of nil
 		},
 	}
-	if _, err := c.MongoClient.UpdateOne(ctx, "tests", map[string]interface{}{
+	if _, err := collection.UpdateOne(ctx, map[string]interface{}{
 		"testID": restartReq.TestID,
 	}, update); err != nil {
 		return fmt.Errorf("failed to reset test status: %w", err)
 	}
 
+	// Start the test again.
 	if err := c.StartTest(ctx, &test); err != nil {
 		return fmt.Errorf("failed to restart test: %w", err)
 	}
@@ -362,9 +372,10 @@ func (c *LoadGenController) RestartTest(ctx context.Context, restartReq *models.
 // SaveResults saves the results of a completed test.
 func (c *LoadGenController) SaveResults(ctx context.Context, results *models.TestResults) error {
 	var test models.Test
-	if err := c.MongoClient.FindOne(ctx, "tests", map[string]interface{}{
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
+	if err := collection.FindOne(ctx, map[string]interface{}{
 		"testID": results.TestID,
-	}, &test); err != nil {
+	}).Decode(&test); err != nil {
 		return err
 	}
 
@@ -372,7 +383,8 @@ func (c *LoadGenController) SaveResults(ctx context.Context, results *models.Tes
 		return fmt.Errorf("test with ID %s cannot have results saved in its current state: %s", results.TestID, test.Status)
 	}
 
-	if _, err := c.MongoClient.InsertOne(ctx, "test_results", results); err != nil {
+	resultsCollection := c.MongoClient.Database(c.Config.MongoDB).Collection("test_results")
+	if _, err := resultsCollection.InsertOne(ctx, results); err != nil {
 		return fmt.Errorf("failed to save test results: %w", err)
 	}
 
@@ -383,7 +395,7 @@ func (c *LoadGenController) SaveResults(ctx context.Context, results *models.Tes
 			"completedAt": results.CompletedAt,
 		},
 	}
-	if _, err := c.MongoClient.UpdateOne(ctx, "tests", map[string]interface{}{
+	if _, err := collection.UpdateOne(ctx, map[string]interface{}{
 		"testID": results.TestID,
 	}, update); err != nil {
 		return fmt.Errorf("failed to update test status after saving results: %w", err)
@@ -396,8 +408,25 @@ func (c *LoadGenController) SaveResults(ctx context.Context, results *models.Tes
 // GetAllTests retrieves all active and scheduled tests.
 func (c *LoadGenController) GetAllTests(ctx context.Context) ([]models.Test, error) {
 	var tests []models.Test
-	if err := c.MongoClient.FindAll(ctx, "tests", map[string]interface{}{}, &tests); err != nil {
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
+	cursor, err := collection.Find(ctx, map[string]interface{}{})
+	if err != nil {
 		c.Logger.Errorf("Failed to retrieve all tests: %v", err)
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	for cursor.Next(ctx) {
+		var test models.Test
+		if err := cursor.Decode(&test); err != nil {
+			c.Logger.Errorf("Failed to decode test: %v", err)
+			continue
+		}
+		tests = append(tests, test)
+	}
+
+	if err := cursor.Err(); err != nil {
+		c.Logger.Errorf("Cursor error: %v", err)
 		return nil, err
 	}
 
@@ -408,10 +437,11 @@ func (c *LoadGenController) GetAllTests(ctx context.Context) ([]models.Test, err
 // GetTestByID retrieves a specific test by its TestID.
 func (c *LoadGenController) GetTestByID(ctx context.Context, testID string) (*models.Test, error) {
 	var test models.Test
-	if err := c.MongoClient.FindOne(ctx, "tests", map[string]interface{}{
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
+	if err := collection.FindOne(ctx, map[string]interface{}{
 		"testID": testID,
-	}, &test); err != nil {
-		if errors.Is(err, mongoDriver.ErrNoDocuments) {
+	}).Decode(&test); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("test with ID %s not found", testID)
 		}
 		return nil, err

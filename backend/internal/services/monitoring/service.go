@@ -5,23 +5,31 @@ package monitoring
 import (
 	"context"
 	"errors"
+	"net/http"
 	"time"
 
-	"github.com/AkshayDubey29/MoniFlux/backend/internal/config/v1"
-	"github.com/AkshayDubey29/MoniFlux/backend/internal/db/mongo"
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/common"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
-
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo" // Correct import for mongo.Client and mongo.Collection
 )
+
+//// HealthCheck is a structure that stores the result of a health check.
+//type HealthCheck struct {
+//	ServiceName string    `bson:"service_name"`
+//	Status      string    `bson:"status"`
+//	CheckedAt   time.Time `bson:"checked_at"`
+//	Details     string    `bson:"details,omitempty"`
+//}
 
 // MonitoringService handles metrics collection and health checks.
 type MonitoringService struct {
-	config         *v1.Config
+	config         *common.Config
 	logger         *logrus.Logger
-	mongoClient    *mongo.Client
-	healthCheckCol *mongo.Collection
+	mongoClient    *mongo.Client     // Updated to the correct mongo.Client type
+	healthCheckCol *mongo.Collection // Updated to the correct mongo.Collection type
 
 	// Prometheus metrics
 	requestCounter  *prometheus.CounterVec
@@ -30,8 +38,8 @@ type MonitoringService struct {
 }
 
 // NewMonitoringService creates a new instance of MonitoringService.
-func NewMonitoringService(cfg *v1.Config, logger *logrus.Logger, mongoClient *mongo.MongoClient) *MonitoringService {
-	healthCol := mongoClient.GetCollection("health_checks")
+func NewMonitoringService(cfg *common.Config, logger *logrus.Logger, mongoClient *mongo.Client) *MonitoringService {
+	healthCol := mongoClient.Database(cfg.MongoDB).Collection("health_checks") // Use the correct collection method
 
 	// Initialize Prometheus metrics
 	requestCounter := prometheus.NewCounterVec(
@@ -86,9 +94,6 @@ func (ms *MonitoringService) RecordError(method, endpoint, errMsg string) {
 
 // PerformHealthCheck performs a health check for a given service.
 func (ms *MonitoringService) PerformHealthCheck(ctx context.Context, serviceName string, checkFunc func() error) error {
-	// Remove unused variable or use it appropriately
-	// startTime := time.Now()
-
 	status := "healthy"
 	details := ""
 
@@ -108,7 +113,7 @@ func (ms *MonitoringService) PerformHealthCheck(ctx context.Context, serviceName
 		Details:     details,
 	}
 
-	_, err = ms.healthCheckCol.InsertOne(ctx, healthCheck)
+	_, err = ms.healthCheckCol.InsertOne(ctx, healthCheck) // Insert health check into MongoDB
 	if err != nil {
 		ms.logger.Errorf("Failed to record health check for %s: %v", serviceName, err)
 		return errors.New("internal server error")

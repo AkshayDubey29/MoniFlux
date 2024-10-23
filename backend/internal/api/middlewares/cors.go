@@ -20,6 +20,11 @@ func CORSMiddleware(allowedOrigins []string, logger *logrus.Logger) func(next ht
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			} else if origin != "" {
+				// Origin is not allowed
+				logger.Warnf("CORS request from disallowed origin: %s", origin)
+				http.Error(w, "CORS origin denied", http.StatusForbidden)
+				return
 			}
 
 			// Handle preflight requests

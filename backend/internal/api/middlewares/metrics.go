@@ -1,5 +1,3 @@
-// backend/internal/api/middlewares/metrics.go
-
 package middlewares
 
 import (
@@ -59,6 +57,18 @@ func (m *Metrics) MetricsMiddleware(next http.Handler) http.Handler {
 }
 
 // ExposeMetricsHandler returns the Prometheus metrics handler
-func ExposeMetricsHandler() http.Handler {
+func (m *Metrics) ExposeMetricsHandler() http.Handler {
 	return promhttp.Handler()
+}
+
+// statusRecorder is a wrapper to capture the HTTP status code
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+// WriteHeader captures the status code
+func (rec *statusRecorder) WriteHeader(code int) {
+	rec.status = code
+	rec.ResponseWriter.WriteHeader(code)
 }

@@ -15,9 +15,9 @@ import (
 // It logs warnings and sets default values if the configuration is invalid or missing.
 func SetupRateLimiter(cfg *common.Config, logger *logrus.Logger) *rate.Limiter {
 	// Validate RateLimit configuration
-	if cfg.RateLimit.RequestsPerMin <= 0 {
-		logger.Warn("RateLimit.RequestsPerMin is not set or invalid, defaulting to 100")
-		cfg.RateLimit.RequestsPerMin = 100
+	if cfg.RateLimit.RequestsPerMinute <= 0 {
+		logger.Warn("RateLimit.RequestsPerMinute is not set or invalid, defaulting to 100")
+		cfg.RateLimit.RequestsPerMinute = 100
 	}
 
 	if cfg.RateLimit.Burst <= 0 {
@@ -26,8 +26,8 @@ func SetupRateLimiter(cfg *common.Config, logger *logrus.Logger) *rate.Limiter {
 	}
 
 	// Initialize the rate limiter
-	limiter := rate.NewLimiter(rate.Limit(cfg.RateLimit.RequestsPerMin), cfg.RateLimit.Burst)
-	logger.Infof("Rate limiter set to %d requests per minute with burst %d", cfg.RateLimit.RequestsPerMin, cfg.RateLimit.Burst)
+	limiter := rate.NewLimiter(rate.Limit(cfg.RateLimit.RequestsPerMinute), cfg.RateLimit.Burst)
+	logger.Infof("Rate limiter set to %d requests per minute with burst %d", cfg.RateLimit.RequestsPerMinute, cfg.RateLimit.Burst)
 
 	return limiter
 }
@@ -36,9 +36,9 @@ func SetupRateLimiter(cfg *common.Config, logger *logrus.Logger) *rate.Limiter {
 // It logs warnings and sets default values if the configuration is invalid or missing.
 func SetupSecurityRateLimiter(cfg *common.Config, logger *logrus.Logger) *rate.Limiter {
 	// Validate SecurityRateLimit configuration
-	if cfg.SecurityRateLimit.RequestsPerMin <= 0 {
-		logger.Warn("SecurityRateLimit.RequestsPerMin is not set or invalid, defaulting to 100")
-		cfg.SecurityRateLimit.RequestsPerMin = 100
+	if cfg.SecurityRateLimit.RequestsPerMinute <= 0 {
+		logger.Warn("SecurityRateLimit.RequestsPerMinute is not set or invalid, defaulting to 100")
+		cfg.SecurityRateLimit.RequestsPerMinute = 100
 	}
 
 	if cfg.SecurityRateLimit.Burst <= 0 {
@@ -47,8 +47,8 @@ func SetupSecurityRateLimiter(cfg *common.Config, logger *logrus.Logger) *rate.L
 	}
 
 	// Initialize the security rate limiter
-	limiter := rate.NewLimiter(rate.Limit(cfg.SecurityRateLimit.RequestsPerMin), cfg.SecurityRateLimit.Burst)
-	logger.Infof("Security rate limiter set to %d requests per minute with burst %d", cfg.SecurityRateLimit.RequestsPerMin, cfg.SecurityRateLimit.Burst)
+	limiter := rate.NewLimiter(rate.Limit(cfg.SecurityRateLimit.RequestsPerMinute), cfg.SecurityRateLimit.Burst)
+	logger.Infof("Security rate limiter set to %d requests per minute with burst %d", cfg.SecurityRateLimit.RequestsPerMinute, cfg.SecurityRateLimit.Burst)
 
 	return limiter
 }
@@ -68,7 +68,7 @@ func ValidateConfig(cfg *common.Config) error {
 		return fmt.Errorf("api_port must be set")
 	}
 
-	// Additional validations can be added here as needed
+	// Add more validation rules as needed
 
 	return nil
 }

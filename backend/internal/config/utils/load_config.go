@@ -8,13 +8,13 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/AkshayDubey29/MoniFlux/backend/internal/api/models"
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/common" // Updated import
 )
 
 // LoadConfig loads the application configuration from the specified path.
 // It supports reading from configuration files, environment variables, and setting default values.
 // The function returns a pointer to the Config struct and an error if the loading fails.
-func LoadConfig(path string) (*models.Config, error) {
+func LoadConfig(path string) (*common.Config, error) { // Changed to common.Config
 	// Initialize Viper
 	v := viper.New()
 
@@ -47,7 +47,7 @@ func LoadConfig(path string) (*models.Config, error) {
 	}
 
 	// Unmarshal the configuration into the Config struct
-	var config models.Config
+	var config common.Config // Changed to common.Config
 	if err := v.Unmarshal(&config); err != nil {
 		return nil, fmt.Errorf("unable to decode into struct: %w", err)
 	}
@@ -68,14 +68,14 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log_level", "info")
 	v.SetDefault("log_format", "json")
 	v.SetDefault("log_output", "stdout")
-	v.SetDefault("mongo_uri", "mongodb://localhost:27017")
+	v.SetDefault("mongo_uri", "mongodb://mongodb:27017")
 	v.SetDefault("mongo_db", "moniflux")
 	v.SetDefault("jwt_secret", "default-jwt-secret")
 	v.SetDefault("jwt_expiry", "24h")
 	v.SetDefault("allowed_origins", []string{"http://localhost:3000"})
-	v.SetDefault("rate_limit.requests_per_minute", 100)
+	v.SetDefault("rate_limit.requests_per_minute", 100) // Changed field name
 	v.SetDefault("rate_limit.burst", 20)
-	v.SetDefault("security.rate_limiting.requests_per_minute", 100)
+	v.SetDefault("security.rate_limiting.requests_per_minute", 100) // Changed field name
 	v.SetDefault("security.rate_limiting.burst", 20)
 	v.SetDefault("metrics.prometheus_enabled", true)
 	v.SetDefault("metrics.prometheus_endpoint", "/metrics")
@@ -83,7 +83,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("enable_tls", false)
 	v.SetDefault("tls_cert_path", "")
 	v.SetDefault("tls_key_path", "")
-	v.SetDefault("destinations", []models.Destination{
+	v.SetDefault("destinations", []common.Destination{ // Changed to common.Destination
 		{Endpoint: "localhost", Port: 8081},
 		{Endpoint: "remote-server.com", Port: 8082},
 	})
@@ -98,7 +98,7 @@ func setDefaults(v *viper.Viper) {
 
 // validateConfig performs validation on the loaded configuration.
 // It ensures that essential configurations are set correctly.
-func validateConfig(config *models.Config) error {
+func validateConfig(config *common.Config) error { // Changed to common.Config
 	// Example validation; extend as necessary
 	if config.JWTSecret == "" {
 		return fmt.Errorf("jwt_secret must be set")

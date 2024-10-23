@@ -28,7 +28,7 @@ logging:
 # ==============================================================================
 database:
   mongo:
-    uri: "mongodb://localhost:27017"  # MongoDB connection URI
+    uri: "mongodb://mongodb:27017"  # MongoDB connection URI
     db: "moniflux"                     # MongoDB database name
     pool_size: 20                      # Connection pool size
     max_lifetime: 30                   # Max lifetime for connections in minutes

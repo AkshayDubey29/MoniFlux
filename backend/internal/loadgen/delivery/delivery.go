@@ -10,14 +10,15 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/AkshayDubey29/MoniFlux/backend/internal/api/models"
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/api/models" // Added import for models
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/common"
 	"github.com/sirupsen/logrus"
 )
 
 // DeliveryService handles the delivery of logs, metrics, and traces to configured destinations.
 type DeliveryService struct {
 	logger       *logrus.Logger
-	destinations []models.Destination
+	destinations []common.Destination
 	client       *http.Client
 }
 
@@ -25,7 +26,7 @@ type DeliveryService struct {
 // Parameters:
 // - logger: Instance of logrus.Logger for logging purposes.
 // - destinations: Slice of Destination structs defining where to send the payloads.
-func NewDeliveryService(logger *logrus.Logger, destinations []models.Destination) *DeliveryService {
+func NewDeliveryService(logger *logrus.Logger, destinations []common.Destination) *DeliveryService {
 	return &DeliveryService{
 		logger:       logger,
 		destinations: destinations,
@@ -123,7 +124,7 @@ func main() {
 	logger.SetFormatter(&logrus.JSONFormatter{})
 	logger.SetLevel(logrus.InfoLevel)
 
-	destinations := []models.Destination{
+	destinations := []common.Destination{
 		{
 			Port:     8081,
 			Endpoint: "localhost",
@@ -141,6 +142,7 @@ func main() {
 			TestID:    "test123",
 			Timestamp: time.Now(),
 			Message:   "Sample log message",
+			Level:     "INFO",
 		},
 	}
 

@@ -1,4 +1,4 @@
-// backend/internal/services/authorization/middleware.go
+// internal/services/authorization/middleware.go
 
 package authorization
 
@@ -33,7 +33,7 @@ func NewAuthorizationMiddleware(authService *AuthorizationService, logger *logru
 func (am *AuthorizationMiddleware) MiddlewareFunc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Retrieve the authenticated user from the context.
-		user, ok := authentication.GetUserFromContext(r.Context())
+		commonUser, ok := authentication.GetUserFromContext(r.Context())
 		if !ok {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -41,9 +41,9 @@ func (am *AuthorizationMiddleware) MiddlewareFunc(next http.Handler) http.Handle
 
 		// Check if the user has all required permissions.
 		for _, perm := range am.requiredPermissions {
-			hasPerm, err := am.authService.UserHasPermission(r.Context(), user.ID.Hex(), perm)
+			hasPerm, err := am.authService.UserHasPermission(r.Context(), commonUser.ID.Hex(), perm)
 			if err != nil {
-				am.logger.Errorf("Error checking permission %s for user %s: %v", perm, user.ID.Hex(), err)
+				am.logger.Errorf("Error checking permission %s for user %s: %v", perm, commonUser.ID.Hex(), err)
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}

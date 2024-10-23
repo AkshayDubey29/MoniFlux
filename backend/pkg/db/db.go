@@ -7,7 +7,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/AkshayDubey29/MoniFlux/backend/internal/config/v1"
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/common"
 	dbmongo "github.com/AkshayDubey29/MoniFlux/backend/internal/db/mongo" // Alias to avoid conflict with external mongo package
 	"github.com/sirupsen/logrus"
 	mongoPkg "go.mongodb.org/mongo-driver/mongo"             // Alias for external mongo package
@@ -19,7 +19,7 @@ var MongoDBClient *dbmongo.MongoClient
 
 // InitializeMongo initializes the MongoDB client and connects to the MongoDB server.
 // It verifies the connection by pinging the MongoDB server and stores the client globally.
-func InitializeMongo(cfg *v1.Config, logger *logrus.Logger) error {
+func InitializeMongo(cfg *common.Config, logger *logrus.Logger) error {
 	// Initialize the MongoDB client using the internal mongo package
 	client, err := dbmongo.NewMongoClient(cfg, logger)
 	if err != nil {

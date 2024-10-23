@@ -1,6 +1,6 @@
 module github.com/AkshayDubey29/MoniFlux/backend
 
-go 1.20
+go 1.18
 
 require (
 	github.com/go-playground/validator/v10 v10.22.1
