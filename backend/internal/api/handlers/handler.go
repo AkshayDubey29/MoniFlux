@@ -9,6 +9,7 @@ import (
 
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/api/models"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/controllers"
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/services/authentication"
 	validator "github.com/go-playground/validator/v10" // Aliased import for clarity
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
@@ -17,17 +18,19 @@ import (
 
 // Handler encapsulates the controller, validator, and logger.
 type Handler struct {
-	Controller *controllers.LoadGenController
-	Validator  *validator.Validate
-	Logger     *logrus.Logger
+	Controller  *controllers.LoadGenController
+	AuthService *authentication.AuthenticationService
+	Validator   *validator.Validate
+	Logger      *logrus.Logger
 }
 
 // NewHandler creates a new Handler instance.
-func NewHandler(controller *controllers.LoadGenController, logger *logrus.Logger) *Handler {
+func NewHandler(controller *controllers.LoadGenController, authService *authentication.AuthenticationService, logger *logrus.Logger) *Handler {
 	return &Handler{
-		Controller: controller,
-		Validator:  validator.New(),
-		Logger:     logger,
+		Controller:  controller,
+		AuthService: authService,
+		Validator:   validator.New(),
+		Logger:      logger,
 	}
 }
 
@@ -266,6 +269,89 @@ func (h *Handler) GetTestByID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(test)
+}
+
+// RegisterUser handles user registration.
+func (h *Handler) RegisterUser(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username" validate:"required"`
+		Email    string `json:"email" validate:"required,email"`
+		Password string `json:"password" validate:"required"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.Logger.Errorf("Failed to decode registration request: %v", err)
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	// Validate the registration request.
+	if err := h.Validator.Struct(req); err != nil {
+		h.Logger.Errorf("Validation error: %v", err)
+		var validationErrors []models.ValidationError
+		for _, err := range err.(validator.ValidationErrors) {
+			validationErrors = append(validationErrors, models.ValidationError{
+				Field:   err.Field(),
+				Message: err.Tag(),
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(validationErrors)
+		return
+	}
+
+	// Register the user using the authentication service.
+	if err := h.AuthService.RegisterUser(req.Username, req.Email, req.Password); err != nil {
+		h.Logger.Errorf("Failed to register user: %v", err)
+		http.Error(w, "Failed to register user", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+// AuthenticateUser handles user authentication.
+func (h *Handler) AuthenticateUser(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username" validate:"required"`
+		Password string `json:"password" validate:"required"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.Logger.Errorf("Failed to decode authentication request: %v", err)
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	// Validate the authentication request.
+	if err := h.Validator.Struct(req); err != nil {
+		h.Logger.Errorf("Validation error: %v", err)
+		var validationErrors []models.ValidationError
+		for _, err := range err.(validator.ValidationErrors) {
+			validationErrors = append(validationErrors, models.ValidationError{
+				Field:   err.Field(),
+				Message: err.Tag(),
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(validationErrors)
+		return
+	}
+
+	// Authenticate the user using the authentication service.
+	token, err := h.AuthService.AuthenticateUser(req.Username, req.Password)
+	if err != nil {
+		h.Logger.Errorf("Failed to authenticate user: %v", err)
+		http.Error(w, "Failed to authenticate user", http.StatusUnauthorized)
+		return
+	}
+
+	// Respond with the JWT token.
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"token": token})
 }
 
 // HealthCheck handles the /health endpoint.

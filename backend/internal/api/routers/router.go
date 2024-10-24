@@ -1,5 +1,3 @@
-// backend/internal/api/routers/router.go
-
 package routers
 
 import (
@@ -9,7 +7,7 @@ import (
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/api/middlewares"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/common"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/controllers"
-	"github.com/AkshayDubey29/MoniFlux/backend/internal/services/authentication" // Added import for AuthenticationService
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/services/authentication"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
@@ -56,27 +54,35 @@ func SetupRouter(logger *logrus.Logger, controller *controllers.LoadGenControlle
 	// 4. Security Headers
 	// 5. CORS
 	// 6. Rate Limiting
-	// 7. Authentication
-	// 8. Metrics
+	// 7. Metrics
 	router.Use(recoveryMiddleware)
 	router.Use(loggingMiddleware)
 	router.Use(requestIDMiddleware)
 	router.Use(securityHeadersMiddleware)
 	router.Use(corsMiddleware)
 	router.Use(rateLimitMiddleware)
-	router.Use(authMiddleware)
 	router.Use(metricsMiddleware)
 
+	// Apply authentication middleware to all routes except /health
+	apiRouter := router.PathPrefix("/").Subrouter()
+	apiRouter.Use(authMiddleware)
+
 	// Initialize handlers with dependencies
-	h := handlers.NewHandler(controller, logger)
+	h := handlers.NewHandler(controller, authService, logger)
 
 	// Define API routes with their respective handlers
-	router.HandleFunc("/start-test", h.StartTest).Methods("POST")
-	router.HandleFunc("/schedule-test", h.ScheduleTest).Methods("POST")
-	router.HandleFunc("/cancel-test", h.CancelTest).Methods("POST")
-	router.HandleFunc("/restart-test", h.RestartTest).Methods("POST")
-	router.HandleFunc("/save-results", h.SaveResults).Methods("POST")
-	router.HandleFunc("/get-all-tests", h.GetAllTests).Methods("GET")
+	apiRouter.HandleFunc("/start-test", h.StartTest).Methods("POST")
+	apiRouter.HandleFunc("/schedule-test", h.ScheduleTest).Methods("POST")
+	apiRouter.HandleFunc("/cancel-test", h.CancelTest).Methods("POST")
+	apiRouter.HandleFunc("/restart-test", h.RestartTest).Methods("POST")
+	apiRouter.HandleFunc("/save-results", h.SaveResults).Methods("POST")
+	apiRouter.HandleFunc("/get-all-tests", h.GetAllTests).Methods("GET")
+
+	// User registration endpoint
+	router.HandleFunc("/register", h.RegisterUser).Methods("POST")
+
+	// Authentication endpoint
+	router.HandleFunc("/authenticate", h.AuthenticateUser).Methods("POST")
 
 	// Health Check Endpoint (Unprotected)
 	router.HandleFunc("/health", handlers.HealthCheck).Methods("GET")

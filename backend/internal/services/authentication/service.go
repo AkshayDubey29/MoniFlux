@@ -10,10 +10,11 @@ import (
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/api/models"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/common"
 	jwt "github.com/golang-jwt/jwt/v4"
-	"github.com/sirupsen/logrus" // Added logrus import
+	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive" // Added primitive import for ObjectID handling
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // AuthenticationService provides methods for JWT operations and user retrieval.
@@ -95,4 +96,58 @@ func (as *AuthenticationService) GenerateJWT(userID string) (string, error) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(as.jwtSecret))
+}
+
+// RegisterUser registers a new user with a username, email, and password.
+func (as *AuthenticationService) RegisterUser(username, email, password string) error {
+	// Check if the user already exists
+	var existingUser struct{}
+	err := as.userCollection.FindOne(context.TODO(), bson.M{"username": username}).Decode(&existingUser)
+	if err == nil {
+		return errors.New("user already exists")
+	}
+	if err != mongo.ErrNoDocuments {
+		return err
+	}
+
+	// Hash the password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	// Insert the new user into the database
+	_, err = as.userCollection.InsertOne(context.TODO(), bson.M{
+		"username":  username,
+		"email":     email,
+		"password":  string(hashedPassword),
+		"createdAt": time.Now(),
+	})
+	return err
+}
+
+// AuthenticateUser authenticates a user and returns a JWT token.
+func (as *AuthenticationService) AuthenticateUser(username, password string) (string, error) {
+	var user models.User
+	err := as.userCollection.FindOne(context.TODO(), bson.M{"username": username}).Decode(&user)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return "", errors.New("invalid username or password")
+		}
+		return "", err
+	}
+
+	// Compare the provided password with the stored hashed password
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
+	if err != nil {
+		return "", errors.New("invalid username or password")
+	}
+
+	// Generate JWT token
+	token, err := as.GenerateJWT(user.ID.Hex())
+	if err != nil {
+		return "", err
+	}
+
+	return token, nil
 }

@@ -8,16 +8,27 @@ import (
 
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/common"
 	jwt "github.com/golang-jwt/jwt/v4"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // User represents a user entity in the system.
+//type User struct {
+//	UserID    string    `json:"userID" bson:"userID"`
+//	Username  string    `json:"username" bson:"username"`
+//	Email     string    `json:"email" bson:"email"`
+//	Password  string    `json:"password" bson:"password"`
+//	CreatedAt time.Time `json:"createdAt" bson:"createdAt"`
+//	UpdatedAt time.Time `json:"updatedAt" bson:"updatedAt"`
+//}
+
 type User struct {
-	UserID    string    `json:"userID" bson:"userID"`
-	Username  string    `json:"username" bson:"username"`
-	Email     string    `json:"email" bson:"email"`
-	Password  string    `json:"password" bson:"password"`
-	CreatedAt time.Time `json:"createdAt" bson:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt" bson:"updatedAt"`
+	ID        primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
+	Username  string               `bson:"username" json:"username"`
+	Email     string               `bson:"email" json:"email"`
+	Password  string               `bson:"password" json:"password"`
+	Roles     []primitive.ObjectID `bson:"roles" json:"roles"`
+	CreatedAt time.Time            `bson:"created_at" json:"createdAt"`
+	UpdatedAt time.Time            `bson:"updated_at" json:"updatedAt"`
 }
 
 // Claims represents the JWT claims.

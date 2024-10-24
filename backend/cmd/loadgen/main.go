@@ -1,10 +1,11 @@
-// backend/cmd/loadgen/main.go
+// cmd/loadgen/main.go
 
 package main
 
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,9 +15,9 @@ import (
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/config/utils"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/controllers"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/db/mongo"
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/services/authentication"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
-	"net/http"
 )
 
 func main() {
@@ -47,8 +48,14 @@ func main() {
 	// Initialize controller with MongoClient's internal client
 	controller := controllers.NewLoadGenController(cfg, logger, mongoClient.Client)
 
+	// Initialize authentication service
+	authService, err := authentication.NewAuthenticationService(cfg, logger, mongoClient.Client)
+	if err != nil {
+		logger.Fatalf("Failed to initialize AuthenticationService: %v", err)
+	}
+
 	// Initialize handlers
-	handler := handlers.NewHandler(controller, logger)
+	handler := handlers.NewHandler(controller, authService, logger)
 
 	// Set up router
 	router := mux.NewRouter()
@@ -65,12 +72,12 @@ func main() {
 
 	// Start HTTP server
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%s", cfg.Server.Port),
+		Addr:    fmt.Sprintf(":%s", cfg.Server.LoadgenPort),
 		Handler: router,
 	}
 
 	go func() {
-		logger.Infof("Starting server on port %s", cfg.Server.Port)
+		logger.Infof("Starting server on port %s", cfg.Server.LoadgenPort)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatalf("ListenAndServe(): %v", err)
 		}

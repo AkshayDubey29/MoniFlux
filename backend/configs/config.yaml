@@ -4,7 +4,8 @@
 # Server Configuration
 # ==============================================================================
 server:
-  port: "9080"                     # Port on which the Load Generator server will run
+  api_port: "8080"      # Port for the API server
+  loadgen_port: "9080"  # Port for the Load Generator server                    # Port on which the Load Generator server will run
   read_timeout: 15                # Maximum duration for reading the entire request, in seconds
   write_timeout: 15               # Maximum duration before timing out writes of the response, in seconds
   idle_timeout: 60                # Maximum amount of time to wait for the next request when keep-alives are enabled, in seconds

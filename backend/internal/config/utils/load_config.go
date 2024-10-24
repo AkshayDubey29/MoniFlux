@@ -61,7 +61,8 @@ func LoadConfig(path string) (*common.Config, error) {
 // These defaults are used if the configuration file or environment variables do not provide specific values.
 func setDefaults(v *viper.Viper) {
 	// Set default configuration values
-	v.SetDefault("server.port", "8080")
+	v.SetDefault("server.api_port", "8080")
+	v.SetDefault("server.loadgen_port", "9080")
 	v.SetDefault("server.read_timeout", 15)
 	v.SetDefault("server.write_timeout", 15)
 	v.SetDefault("server.idle_timeout", 60)
@@ -95,7 +96,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("enable_tls", false)
 	v.SetDefault("tls_cert_path", "/path/to/cert.pem")
 	v.SetDefault("tls_key_path", "/path/to/key.pem")
-	v.SetDefault("server_port", "8080")
 
 	v.SetDefault("destinations", []common.Destination{
 		{Name: "destination1", Endpoint: "https://destination1.example.com/api", Port: 443, APIKey: "your_destination1_api_key_here"},
@@ -143,8 +143,12 @@ func validateConfig(config *common.Config) error {
 		return fmt.Errorf("jwt_expiry must be set")
 	}
 
-	if config.Server.Port == "" {
-		return fmt.Errorf("server.port must be set")
+	if config.Server.APIPort == "" {
+		return fmt.Errorf("server.api_port must be set")
+	}
+
+	if config.Server.LoadgenPort == "" {
+		return fmt.Errorf("server.loadgen_port must be set")
 	}
 
 	// Add more validation rules as needed

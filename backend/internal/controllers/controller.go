@@ -41,6 +41,9 @@ func NewLoadGenController(cfg *common.Config, log *logrus.Logger, mongoClient *m
 	}
 }
 
+// Define a default LogRate
+const DefaultLogRate = 1 // in seconds
+
 // StartTest initiates a new load test.
 func (c *LoadGenController) StartTest(ctx context.Context, test *models.Test) error {
 	c.mu.Lock()
@@ -49,6 +52,12 @@ func (c *LoadGenController) StartTest(ctx context.Context, test *models.Test) er
 	// Assign a unique TestID if not provided.
 	if test.TestID == "" {
 		test.TestID = uuid.New().String()
+	}
+
+	// Set default LogRate if not set or invalid
+	if test.LogRate <= 0 {
+		c.Logger.Warnf("Invalid LogRate %d for test %s. Setting to default %d seconds.", test.LogRate, test.TestID, DefaultLogRate)
+		test.LogRate = DefaultLogRate
 	}
 
 	// Initialize status and timestamps.
@@ -74,12 +83,19 @@ func (c *LoadGenController) StartTest(ctx context.Context, test *models.Test) er
 	// Start load generation in a separate goroutine.
 	go c.generateLoad(loadCtx, test)
 
-	c.Logger.Infof("Load test started: %s", test.TestID)
+	c.Logger.Infof("Load test started: %s with LogRate: %d seconds", test.TestID, test.LogRate)
 	return nil
 }
 
 // generateLoad simulates load generation.
+// generateLoad simulates load generation.
 func (c *LoadGenController) generateLoad(ctx context.Context, test *models.Test) {
+	if test.LogRate <= 0 {
+		c.Logger.Errorf("Cannot start generateLoad for test %s due to invalid LogRate: %d", test.TestID, test.LogRate)
+		c.updateTestStatus(context.Background(), test.TestID, "Error")
+		return
+	}
+
 	ticker := time.NewTicker(time.Duration(test.LogRate) * time.Second)
 	defer ticker.Stop()
 

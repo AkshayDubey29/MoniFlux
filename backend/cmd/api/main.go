@@ -1,4 +1,4 @@
-// backend/cmd/api/main.go
+// cmd/api/main.go
 
 package main
 
@@ -52,7 +52,7 @@ func main() {
 
 	// Define the HTTP server with timeouts and the router as the handler
 	srv := &http.Server{
-		Addr:         ":" + cfg.ServerPort,
+		Addr:         ":" + cfg.Server.APIPort,
 		Handler:      router,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
@@ -61,7 +61,7 @@ func main() {
 
 	// Start the server in a separate goroutine to allow graceful shutdown
 	go func() {
-		customLogger.Infof("Starting API server on port %s", cfg.ServerPort)
+		customLogger.Infof("Starting API server on port %s", cfg.Server.APIPort)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			customLogger.Fatalf("ListenAndServe(): %v", err)
 		}

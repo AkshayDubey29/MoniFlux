@@ -35,11 +35,13 @@ type Destination struct {
 }
 
 // ServerConfig represents the server configuration section.
+
 type ServerConfig struct {
-	Port         string `mapstructure:"port" json:"port" bson:"port"`                          // Port on which the server runs.
-	ReadTimeout  int    `mapstructure:"read_timeout" json:"readTimeout" bson:"readTimeout"`    // Read timeout in seconds.
-	WriteTimeout int    `mapstructure:"write_timeout" json:"writeTimeout" bson:"writeTimeout"` // Write timeout in seconds.
-	IdleTimeout  int    `mapstructure:"idle_timeout" json:"idleTimeout" bson:"idleTimeout"`    // Idle timeout in seconds.
+	APIPort      string `mapstructure:"api_port" json:"api_port" bson:"api_port"`
+	LoadgenPort  string `mapstructure:"loadgen_port" json:"loadgen_port" bson:"loadgen_port"`
+	ReadTimeout  int    `mapstructure:"read_timeout" json:"read_timeout" bson:"read_timeout"`
+	WriteTimeout int    `mapstructure:"write_timeout" json:"write_timeout" bson:"write_timeout"`
+	IdleTimeout  int    `mapstructure:"idle_timeout" json:"idle_timeout" bson:"idle_timeout"`
 }
 
 // Config represents the application's configuration settings.
