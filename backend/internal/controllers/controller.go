@@ -88,7 +88,6 @@ func (c *LoadGenController) StartTest(ctx context.Context, test *models.Test) er
 }
 
 // generateLoad simulates load generation.
-// generateLoad simulates load generation.
 func (c *LoadGenController) generateLoad(ctx context.Context, test *models.Test) {
 	if test.LogRate <= 0 {
 		c.Logger.Errorf("Cannot start generateLoad for test %s due to invalid LogRate: %d", test.TestID, test.LogRate)
@@ -321,6 +320,7 @@ func (c *LoadGenController) CancelTest(ctx context.Context, testID string) error
 }
 
 // RestartTest restarts an existing test with updated configurations.
+// RestartTest restarts an existing test with updated configurations.
 func (c *LoadGenController) RestartTest(ctx context.Context, restartReq *models.RestartRequest) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -330,6 +330,7 @@ func (c *LoadGenController) RestartTest(ctx context.Context, restartReq *models.
 	err := collection.FindOne(ctx, map[string]interface{}{
 		"testID": restartReq.TestID,
 	}).Decode(&test)
+
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return fmt.Errorf("test with ID %s not found", restartReq.TestID)
@@ -337,37 +338,26 @@ func (c *LoadGenController) RestartTest(ctx context.Context, restartReq *models.
 		return err
 	}
 
-	if test.Status != "Completed" && test.Status != "Cancelled" && test.Status != "Error" {
+	// Allow restarting tests in 'Running' state as well
+	if test.Status != "Completed" && test.Status != "Cancelled" && test.Status != "Error" && test.Status != "Running" {
 		return fmt.Errorf("test with ID %s cannot be restarted in its current state: %s", restartReq.TestID, test.Status)
 	}
 
-	// Update the test configurations.
-	updateFields := make(map[string]interface{})
+	// Update the test configurations if provided
 	if restartReq.LogRate > 0 {
-		updateFields["logRate"] = restartReq.LogRate
+		test.LogRate = restartReq.LogRate
 	}
 	if restartReq.Duration > 0 {
-		updateFields["duration"] = restartReq.Duration
+		test.Duration = restartReq.Duration
 	}
 
-	if len(updateFields) > 0 {
-		update := map[string]interface{}{
-			"$set": updateFields,
-		}
-		if _, err := collection.UpdateOne(ctx, map[string]interface{}{
-			"testID": restartReq.TestID,
-		}, update); err != nil {
-			return fmt.Errorf("failed to update test configurations: %w", err)
-		}
-	}
-
-	// Reset the test status.
+	// Reset the test status to "Running"
 	update := map[string]interface{}{
 		"$set": map[string]interface{}{
 			"status":      "Running",
 			"updatedAt":   time.Now(),
 			"createdAt":   time.Now(),
-			"completedAt": time.Time{}, // Using zero value instead of nil
+			"completedAt": time.Time{},
 		},
 	}
 	if _, err := collection.UpdateOne(ctx, map[string]interface{}{
@@ -376,7 +366,7 @@ func (c *LoadGenController) RestartTest(ctx context.Context, restartReq *models.
 		return fmt.Errorf("failed to reset test status: %w", err)
 	}
 
-	// Start the test again.
+	// Start the test again
 	if err := c.StartTest(ctx, &test); err != nil {
 		return fmt.Errorf("failed to restart test: %w", err)
 	}

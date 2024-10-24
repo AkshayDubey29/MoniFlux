@@ -3,9 +3,14 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"io/ioutil"
 	"net/http"
+	"time"
 
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/api/models"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/controllers"
@@ -159,8 +164,17 @@ func (h *Handler) RestartTest(w http.ResponseWriter, r *http.Request) {
 
 	var restartReq models.RestartRequest
 
+	// Log the request body for debugging
+	bodyBytes, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		h.Logger.Errorf("Failed to read request body: %v", err)
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	h.Logger.Debugf("Request body: %s", string(bodyBytes))
+
 	// Decode the request payload
-	if err := json.NewDecoder(r.Body).Decode(&restartReq); err != nil {
+	if err := json.Unmarshal(bodyBytes, &restartReq); err != nil {
 		h.Logger.Errorf("Failed to decode restart request: %v", err)
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
@@ -185,45 +199,39 @@ func (h *Handler) RestartTest(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Logger.Debug("RestartRequest validation successful")
 
-	// Attempt to restart the test using the controller
-	h.Logger.Debugf("Attempting to restart test with ID: %s", restartReq.TestID)
-	if err := h.Controller.RestartTest(r.Context(), &restartReq); err != nil {
-		h.Logger.Errorf("Failed to restart test: %v", err)
-		// If the error is due to a missing test ID, return a 404
-		if err == models.ErrTestNotFound {
-			http.Error(w, "Test not found", http.StatusNotFound)
-			h.Logger.Debug("Sent 404 Not Found response")
-			return
-		}
-		// Otherwise, return a general 500 error
-		http.Error(w, "Failed to restart test", http.StatusInternalServerError)
-		h.Logger.Debug("Sent 500 Internal Server Error response")
-		return
-	}
-	h.Logger.Debug("RestartTest controller method executed successfully")
+	// Construct the internal call to the loadgen service's /tests/restart endpoint
+	loadgenURL := fmt.Sprintf("%s/tests/restart", h.Controller.Config.Server.LoadgenURL)
+	h.Logger.Debugf("Internal call to %s", loadgenURL)
 
-	// Retrieve updated test details to return to the client
-	h.Logger.Debugf("Retrieving updated test details for TestID: %s", restartReq.TestID)
-	updatedTest, err := h.Controller.GetTestByID(r.Context(), restartReq.TestID)
+	// Perform the HTTP request to loadgen service
+	resp, err := http.Post(loadgenURL, "application/json", bytes.NewBuffer(bodyBytes))
 	if err != nil {
-		h.Logger.Errorf("Failed to retrieve updated test details: %v", err)
-		http.Error(w, "Failed to retrieve updated test details", http.StatusInternalServerError)
-		h.Logger.Debug("Sent 500 Internal Server Error response for GetTestByID")
+		h.Logger.Errorf("Internal call to /tests/restart failed: %v", err)
+		http.Error(w, "Failed to restart test", http.StatusInternalServerError)
 		return
 	}
-	h.Logger.Debugf("Retrieved updated test details: %+v", updatedTest)
+	defer resp.Body.Close()
 
-	// Respond with the updated test information
+	// Read response from loadgen
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		h.Logger.Errorf("Failed to read response from loadgen service: %v", err)
+		http.Error(w, "Failed to read response from loadgen service", http.StatusInternalServerError)
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		h.Logger.Errorf("Loadgen service returned error: %s", string(body))
+		http.Error(w, "Loadgen service error", http.StatusInternalServerError)
+		return
+	}
+
+	h.Logger.Debug("RestartTest internal call successful")
+
+	// Respond with the success message
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(updatedTest); err != nil {
-		h.Logger.Errorf("Failed to encode updated test details: %v", err)
-		// Even if encoding fails, respond with 500
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		h.Logger.Debug("Sent 500 Internal Server Error response for JSON encoding")
-		return
-	}
-	h.Logger.Debug("Sent updated test details in response")
+	w.Write(body) // Return the response from loadgen to the client
 }
 
 // SaveResults handles saving the results of a load test.
@@ -391,14 +399,28 @@ func (h *Handler) AuthenticateUser(w http.ResponseWriter, r *http.Request) {
 
 // CreateTest handles the creation of a new load test.
 func (h *Handler) CreateTest(w http.ResponseWriter, r *http.Request) {
+	h.Logger.Debugf("Received request to create test at %v", time.Now())
+
+	// Log incoming request body
+	var requestBodyBytes []byte
+	requestBodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		h.Logger.Errorf("Failed to read request body: %v", err)
+		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+		return
+	}
+	h.Logger.Debugf("CreateTest request body: %s", string(requestBodyBytes))
+
+	// Decode the request body into the Test struct
 	var test models.Test
-	if err := json.NewDecoder(r.Body).Decode(&test); err != nil {
+	if err := json.Unmarshal(requestBodyBytes, &test); err != nil {
 		h.Logger.Errorf("Failed to decode create-test request: %v", err)
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
+	h.Logger.Debugf("Decoded Test object: %+v", test)
 
-	// Validate the test struct.
+	// Validate the test struct
 	if err := h.Validator.Struct(test); err != nil {
 		h.Logger.Errorf("Validation error in create-test: %v", err)
 		var validationErrors []models.ValidationError
@@ -413,18 +435,25 @@ func (h *Handler) CreateTest(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(validationErrors)
 		return
 	}
+	h.Logger.Debug("Test object passed validation")
 
-	// Create the test using the controller.
+	// Call the controller to create the test
+	h.Logger.Debug("Calling Controller.CreateTest")
 	if err := h.Controller.CreateTest(r.Context(), &test); err != nil {
 		h.Logger.Errorf("Failed to create test: %v", err)
 		http.Error(w, "Failed to create test", http.StatusInternalServerError)
 		return
 	}
+	h.Logger.Debugf("Test created successfully: %+v", test)
 
-	// Respond with the created test.
+	// Respond with the created test
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(test)
+	if err := json.NewEncoder(w).Encode(test); err != nil {
+		h.Logger.Errorf("Failed to encode response: %v", err)
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+	h.Logger.Debug("CreateTest response sent successfully")
 }
 
 // HealthCheck handles the /health endpoint.

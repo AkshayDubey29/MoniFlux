@@ -63,6 +63,7 @@ func setDefaults(v *viper.Viper) {
 	// Set default configuration values
 	v.SetDefault("server.api_port", "8080")
 	v.SetDefault("server.loadgen_port", "9080")
+
 	v.SetDefault("server.read_timeout", 15)
 	v.SetDefault("server.write_timeout", 15)
 	v.SetDefault("server.idle_timeout", 60)

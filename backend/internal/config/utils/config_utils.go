@@ -1,5 +1,3 @@
-// backend/internal/config/utils/config_utils.go
-
 package utils
 
 import (
@@ -56,6 +54,7 @@ func SetupSecurityRateLimiter(cfg *common.Config, logger *logrus.Logger) *rate.L
 // ValidateConfig performs additional validation on the loaded configuration.
 // It ensures that essential configurations are set correctly.
 func ValidateConfig(cfg *common.Config) error {
+	// Validate JWT Secret and Expiry
 	if cfg.JWTSecret == "" {
 		return fmt.Errorf("jwt_secret must be set")
 	}
@@ -64,12 +63,17 @@ func ValidateConfig(cfg *common.Config) error {
 		return fmt.Errorf("jwt_expiry must be set")
 	}
 
-	if cfg.APIPort == "" {
+	// Validate API Port
+	if cfg.Server.APIPort == "" {
 		return fmt.Errorf("api_port must be set")
 	}
 
-	// Add more validation rules as needed
+	// Validate Loadgen URL
+	if cfg.Server.LoadgenURL == "" {
+		return fmt.Errorf("loadgen_url must be set")
+	}
 
+	// Additional validation rules can be added here as needed
 	return nil
 }
 

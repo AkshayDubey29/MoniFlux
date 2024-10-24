@@ -39,6 +39,7 @@ type Destination struct {
 type ServerConfig struct {
 	APIPort      string `mapstructure:"api_port" json:"api_port" bson:"api_port"`
 	LoadgenPort  string `mapstructure:"loadgen_port" json:"loadgen_port" bson:"loadgen_port"`
+	LoadgenURL   string `mapstructure:"loadgen_url" json:"loadgen_url" bson:"loadgen_url"` // Add this field
 	ReadTimeout  int    `mapstructure:"read_timeout" json:"read_timeout" bson:"read_timeout"`
 	WriteTimeout int    `mapstructure:"write_timeout" json:"write_timeout" bson:"write_timeout"`
 	IdleTimeout  int    `mapstructure:"idle_timeout" json:"idle_timeout" bson:"idle_timeout"`
@@ -47,6 +48,7 @@ type ServerConfig struct {
 // Config represents the application's configuration settings.
 type Config struct {
 	Server            ServerConfig  `mapstructure:"server" json:"server" bson:"server"`
+	LoadgenURL        string        `mapstructure:"loadgen_url"`
 	LogLevel          string        `mapstructure:"log_level" json:"logLevel" bson:"logLevel"`
 	LogFormat         string        `mapstructure:"log_format" json:"logFormat" bson:"logFormat"`
 	LogOutput         string        `mapstructure:"log_output" json:"logOutput" bson:"logOutput"`

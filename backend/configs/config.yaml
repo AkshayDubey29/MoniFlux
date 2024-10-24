@@ -4,6 +4,7 @@
 # Server Configuration
 # ==============================================================================
 server:
+  loadgen_url: "http://moniflux-loadgen:9080"
   api_port: "8080"      # Port for the API server
   loadgen_port: "9080"  # Port for the Load Generator server                    # Port on which the Load Generator server will run
   read_timeout: 15                # Maximum duration for reading the entire request, in seconds
