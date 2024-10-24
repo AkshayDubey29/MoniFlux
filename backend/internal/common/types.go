@@ -28,16 +28,27 @@ type Monitoring struct {
 
 // Destination represents where the payloads are delivered.
 type Destination struct {
+	Name     string `mapstructure:"name" json:"name" bson:"name"`             // Name of the destination.
 	Endpoint string `mapstructure:"endpoint" json:"endpoint" bson:"endpoint"` // Endpoint URL for the destination.
 	Port     int    `mapstructure:"port" json:"port" bson:"port"`             // Port number for the destination.
+	APIKey   string `mapstructure:"api_key" json:"apiKey" bson:"apiKey"`      // API key for authentication.
+}
+
+// ServerConfig represents the server configuration section.
+type ServerConfig struct {
+	Port         string `mapstructure:"port" json:"port" bson:"port"`                          // Port on which the server runs.
+	ReadTimeout  int    `mapstructure:"read_timeout" json:"readTimeout" bson:"readTimeout"`    // Read timeout in seconds.
+	WriteTimeout int    `mapstructure:"write_timeout" json:"writeTimeout" bson:"writeTimeout"` // Write timeout in seconds.
+	IdleTimeout  int    `mapstructure:"idle_timeout" json:"idleTimeout" bson:"idleTimeout"`    // Idle timeout in seconds.
 }
 
 // Config represents the application's configuration settings.
 type Config struct {
-	APIPort           string        `mapstructure:"api_port" json:"apiPort" bson:"apiPort"`
+	Server            ServerConfig  `mapstructure:"server" json:"server" bson:"server"`
 	LogLevel          string        `mapstructure:"log_level" json:"logLevel" bson:"logLevel"`
 	LogFormat         string        `mapstructure:"log_format" json:"logFormat" bson:"logFormat"`
 	LogOutput         string        `mapstructure:"log_output" json:"logOutput" bson:"logOutput"`
+	LogFilePath       string        `mapstructure:"log_file_path" json:"logFilePath" bson:"logFilePath"` // Path to log file.
 	MongoURI          string        `mapstructure:"mongo_uri" json:"mongoURI" bson:"mongoURI"`
 	MongoDB           string        `mapstructure:"mongo_db" json:"mongoDB" bson:"mongoDB"`
 	JWTSecret         string        `mapstructure:"jwt_secret" json:"jwtSecret" bson:"jwtSecret"`
@@ -57,10 +68,11 @@ type Config struct {
 	MetricsValue      float64       `mapstructure:"metrics_value" json:"metricsValue" bson:"metricsValue"`
 	DefaultRoles      []string      `mapstructure:"default_roles" json:"defaultRoles" bson:"defaultRoles"`
 	Monitoring        Monitoring    `mapstructure:"monitoring" json:"monitoring" bson:"monitoring"`
-	LogFilePath       string        `yaml:"log_file_path"` // Added Field
-	ServerPort        string        `yaml:"server_port"`   // Added Field
+	APIPort           string
+	ServerPort        string `mapstructure:"server_port" json:"serverPort" bson:"serverPort"`
 }
 
+// User represents a user in the system.
 type User struct {
 	ID        primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
 	Username  string               `bson:"username" json:"username"`

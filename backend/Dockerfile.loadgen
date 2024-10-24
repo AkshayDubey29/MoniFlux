@@ -1,35 +1,23 @@
-# Dockerfile for MoniFlux Load Generator
+# backend/Dockerfile.loadgen
 
-# Stage 1: Build the Go binary
+# Stage 1: Build the Go application
 FROM golang:1.20-alpine AS builder
 
-# Set the working directory inside the container
 WORKDIR /app
 
-# Copy go.mod and go.sum files to the container and download the necessary Go modules
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy the rest of the application source code to the container
 COPY . .
 
-# Build the Go application for the Load Generator and place the binary in the /app/bin directory
 RUN go build -o bin/loadgen cmd/loadgen/main.go
 
-# Stage 2: Create a minimal runtime image for production
+# Stage 2: Create the final image
 FROM alpine:latest
-
-# Set the working directory for the runtime container
 WORKDIR /app
 
-# Copy the compiled binary from the builder stage to the runtime container
+RUN mkdir -p /app/configs
 COPY --from=builder /app/bin/loadgen .
+EXPOSE 9080
 
-# Copy the configuration file to the runtime container
-COPY configs/config.yaml ./configs/
-
-# Expose port 9098 for the Load Generator service
-EXPOSE 9098
-
-# Define the command to run the Load Generator binary when the container starts
 CMD ["./loadgen"]

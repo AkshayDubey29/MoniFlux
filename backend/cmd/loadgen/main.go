@@ -1,3 +1,5 @@
+// backend/cmd/loadgen/main.go
+
 package main
 
 import (
@@ -18,40 +20,40 @@ import (
 )
 
 func main() {
-	// Initialize logger with appropriate settings.
+	// Initialize logger
 	logger := logrus.New()
-	logger.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
-	})
+	logger.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
 	logger.SetLevel(logrus.InfoLevel)
 
-	// Load configuration.
-	cfg, err := utils.LoadConfig("config.yaml")
+	// Load configuration (use default config file path or environment variable)
+	configFile := "/app/configs/config.yaml" // Default path
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		// If the file doesn't exist, don't use it
+		configFile = ""
+	}
+
+	cfg, err := utils.LoadConfig(configFile)
 	if err != nil {
 		logger.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Initialize MongoDB client.
+	// Initialize MongoDB client
 	mongoClient, err := mongo.NewMongoClient(cfg, logger)
 	if err != nil {
 		logger.Fatalf("Failed to initialize MongoDB client: %v", err)
 	}
-	defer func() {
-		if err := mongoClient.Disconnect(context.Background()); err != nil {
-			logger.Errorf("Failed to disconnect MongoDB client: %v", err)
-		}
-	}()
+	defer mongoClient.Disconnect(context.Background())
 
-	// Initialize controller with MongoClient's internal client.
-	controller := controllers.NewLoadGenController(cfg, logger, mongoClient.Client) // Pass the internal client
+	// Initialize controller with MongoClient's internal client
+	controller := controllers.NewLoadGenController(cfg, logger, mongoClient.Client)
 
-	// Initialize handlers.
+	// Initialize handlers
 	handler := handlers.NewHandler(controller, logger)
 
-	// Set up router.
+	// Set up router
 	router := mux.NewRouter()
 
-	// Define routes.
+	// Define routes
 	router.HandleFunc("/tests", handler.StartTest).Methods("POST")
 	router.HandleFunc("/tests/schedule", handler.ScheduleTest).Methods("POST")
 	router.HandleFunc("/tests/cancel", handler.CancelTest).Methods("POST")
@@ -59,32 +61,29 @@ func main() {
 	router.HandleFunc("/tests/results", handler.SaveResults).Methods("POST")
 	router.HandleFunc("/tests", handler.GetAllTests).Methods("GET")
 	router.HandleFunc("/tests/{testID}", handler.GetTestByID).Methods("GET")
+	router.HandleFunc("/health", handlers.HealthCheck).Methods("GET") // Health Check Endpoint
 
-	// Health Check Endpoint (Unprotected)
-	router.HandleFunc("/health", handlers.HealthCheck).Methods("GET")
-
-	// Start HTTP server.
+	// Start HTTP server
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.ServerPort),
+		Addr:    fmt.Sprintf(":%s", cfg.Server.Port),
 		Handler: router,
 	}
 
-	// Run server in a goroutine.
 	go func() {
-		logger.Infof("Starting server on port %d", cfg.ServerPort)
+		logger.Infof("Starting server on port %s", cfg.Server.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatalf("ListenAndServe(): %v", err)
 		}
 	}()
 
-	// Graceful shutdown on interrupt signal.
+	// Graceful shutdown on interrupt signal
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	<-stop
 	logger.Info("Shutting down server...")
 
-	// Shutdown the server with a timeout.
+	// Shutdown the server with a timeout
 	ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelShutdown()
 

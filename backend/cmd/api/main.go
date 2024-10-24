@@ -27,12 +27,11 @@ func main() {
 	}
 
 	// Initialize custom logger based on the configuration
-	// Assuming NewLogger expects three string arguments: log level, log format, log file path
 	customLogger := logger.NewLogger(cfg.LogLevel, cfg.LogFormat, cfg.LogFilePath)
 	customLogger.Info("Custom logger initialized")
 
 	// Initialize MongoDB connection
-	mongoClient, err := mongo.NewMongoClient(cfg, customLogger) // Changed from InitializeMongo
+	mongoClient, err := mongo.NewMongoClient(cfg, customLogger)
 	if err != nil {
 		customLogger.Fatalf("Failed to initialize MongoDB: %v", err)
 	}
@@ -85,7 +84,7 @@ func main() {
 
 	// Disconnect MongoDB client
 	if mongoClient != nil && mongoClient.Client != nil {
-		if err := mongoClient.Disconnect(ctx); err != nil { // Changed from Close() to Disconnect(ctx)
+		if err := mongoClient.Disconnect(ctx); err != nil {
 			customLogger.Errorf("Error disconnecting MongoDB client: %v", err)
 		} else {
 			customLogger.Info("MongoDB connection closed")
