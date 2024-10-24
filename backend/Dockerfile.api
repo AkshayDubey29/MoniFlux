@@ -14,6 +14,7 @@ WORKDIR /app
 
 # Copy go.mod and go.sum files to the container and download the necessary Go modules
 COPY go.mod go.sum ./
+RUN go clean -modcache
 RUN go mod download
 
 # Copy the rest of the application source code to the container

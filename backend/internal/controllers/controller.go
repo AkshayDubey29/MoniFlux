@@ -483,3 +483,35 @@ func (c *LoadGenController) StopAllTests(ctx context.Context) error {
 
 	return nil
 }
+
+// CreateTest inserts a new test into the database.
+func (c *LoadGenController) CreateTest(ctx context.Context, test *models.Test) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Assign a unique TestID if not provided.
+	if test.TestID == "" {
+		test.TestID = uuid.New().String()
+	}
+
+	// Set default LogRate if not set or invalid
+	if test.LogRate <= 0 {
+		c.Logger.Warnf("Invalid LogRate %d for test %s. Setting to default %d seconds.", test.LogRate, test.TestID, DefaultLogRate)
+		test.LogRate = DefaultLogRate
+	}
+
+	// Initialize status and timestamps.
+	test.Status = "Pending"
+	test.CreatedAt = time.Now()
+	test.UpdatedAt = time.Now()
+
+	// Insert the test into the database.
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
+	if _, err := collection.InsertOne(ctx, test); err != nil {
+		c.Logger.Errorf("Failed to insert test into database: %v", err)
+		return err
+	}
+
+	c.Logger.Infof("Test created: %s", test.TestID)
+	return nil
+}

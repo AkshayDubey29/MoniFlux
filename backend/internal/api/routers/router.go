@@ -32,12 +32,8 @@ func SetupRouter(logger *logrus.Logger, controller *controllers.LoadGenControlle
 	corsMiddleware := middlewares.CORSMiddleware(config.AllowedOrigins, logger)
 
 	// Setup Rate Limiter
-	// rate.Every defines the interval between events, so we calculate it based on RequestsPerMinute
-	// For example, 60 requests per minute => 1 request per second
 	rateLimitInterval := rate.Every(time.Minute / time.Duration(config.RateLimit.RequestsPerMinute))
-	// Initialize RateLimiter with rate limit, burst size, and logger
 	rateLimiter := middlewares.NewRateLimiter(rateLimitInterval, config.RateLimit.Burst, logger)
-	// Initialize RateLimitMiddleware with the RateLimiter instance
 	rateLimitMiddleware := middlewares.RateLimitMiddleware(rateLimiter)
 
 	// Initialize Metrics Middleware
@@ -72,23 +68,41 @@ func SetupRouter(logger *logrus.Logger, controller *controllers.LoadGenControlle
 
 	// Define API routes with their respective handlers
 	apiRouter.HandleFunc("/start-test", h.StartTest).Methods("POST")
+	logger.Infof("Registered POST /start-test endpoint")
+
 	apiRouter.HandleFunc("/schedule-test", h.ScheduleTest).Methods("POST")
+	logger.Infof("Registered POST /schedule-test endpoint")
+
+	apiRouter.HandleFunc("/create-test", h.CreateTest).Methods("POST")
+	logger.Infof("Registered POST /create-test endpoint")
+
 	apiRouter.HandleFunc("/cancel-test", h.CancelTest).Methods("POST")
+	logger.Infof("Registered POST /cancel-test endpoint")
+
 	apiRouter.HandleFunc("/restart-test", h.RestartTest).Methods("POST")
+	logger.Infof("Registered POST /restart-test endpoint")
+
 	apiRouter.HandleFunc("/save-results", h.SaveResults).Methods("POST")
+	logger.Infof("Registered POST /save-results endpoint")
+
 	apiRouter.HandleFunc("/get-all-tests", h.GetAllTests).Methods("GET")
+	logger.Infof("Registered GET /get-all-tests endpoint")
 
 	// User registration endpoint
 	router.HandleFunc("/register", h.RegisterUser).Methods("POST")
+	logger.Infof("Registered POST /register endpoint")
 
 	// Authentication endpoint
 	router.HandleFunc("/authenticate", h.AuthenticateUser).Methods("POST")
+	logger.Infof("Registered POST /authenticate endpoint")
 
 	// Health Check Endpoint (Unprotected)
 	router.HandleFunc("/health", handlers.HealthCheck).Methods("GET")
+	logger.Infof("Registered GET /health endpoint")
 
 	// Metrics Endpoint (Protected or Unprotected based on your needs)
 	router.Handle("/metrics", metrics.ExposeMetricsHandler()).Methods("GET")
+	logger.Infof("Registered GET /metrics endpoint")
 
 	return router
 }

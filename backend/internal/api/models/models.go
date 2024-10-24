@@ -45,11 +45,11 @@ type Test struct {
 	TestID        string             `json:"testID" bson:"testID"`
 	UserID        string             `json:"userID" bson:"userID"`
 	LogType       string             `json:"logType" bson:"logType"`
-	LogRate       int                `json:"logRate" bson:"logRate"`
-	LogSize       int                `json:"logSize" bson:"logSize"`
+	LogRate       int                `json:"logRate" validate:"required,min=1"`
+	LogSize       int                `json:"logSize" validate:"required,min=1"`
 	MetricsRate   int                `json:"metricsRate" bson:"metricsRate"`
 	TraceRate     int                `json:"traceRate" bson:"traceRate"`
-	Duration      int                `json:"duration" bson:"duration"`
+	Duration      int                `json:"duration" validate:"required,min=1"`
 	Destination   common.Destination `json:"destination" bson:"destination"`
 	Status        string             `json:"status" bson:"status"`
 	ScheduledTime time.Time          `json:"scheduledTime,omitempty" bson:"scheduledTime,omitempty"`
@@ -117,3 +117,4 @@ type ValidationError struct {
 
 // ErrInvalidToken is returned when a JWT token is invalid.
 var ErrInvalidToken = errors.New("invalid token")
+var ErrTestNotFound = errors.New("test not found")

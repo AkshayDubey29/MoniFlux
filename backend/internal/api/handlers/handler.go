@@ -155,14 +155,19 @@ func (h *Handler) CancelTest(w http.ResponseWriter, r *http.Request) {
 
 // RestartTest handles restarting a load test.
 func (h *Handler) RestartTest(w http.ResponseWriter, r *http.Request) {
+	h.Logger.Debug("Entered RestartTest handler")
+
 	var restartReq models.RestartRequest
+
+	// Decode the request payload
 	if err := json.NewDecoder(r.Body).Decode(&restartReq); err != nil {
 		h.Logger.Errorf("Failed to decode restart request: %v", err)
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
+	h.Logger.Debugf("Decoded RestartRequest: %+v", restartReq)
 
-	// Validate the restart request.
+	// Validate the restart request
 	if err := h.Validator.Struct(restartReq); err != nil {
 		h.Logger.Errorf("Validation error: %v", err)
 		var validationErrors []models.ValidationError
@@ -175,20 +180,50 @@ func (h *Handler) RestartTest(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(validationErrors)
+		h.Logger.Debug("Sent validation error response")
 		return
 	}
+	h.Logger.Debug("RestartRequest validation successful")
 
-	// Restart the test using the controller.
+	// Attempt to restart the test using the controller
+	h.Logger.Debugf("Attempting to restart test with ID: %s", restartReq.TestID)
 	if err := h.Controller.RestartTest(r.Context(), &restartReq); err != nil {
 		h.Logger.Errorf("Failed to restart test: %v", err)
+		// If the error is due to a missing test ID, return a 404
+		if err == models.ErrTestNotFound {
+			http.Error(w, "Test not found", http.StatusNotFound)
+			h.Logger.Debug("Sent 404 Not Found response")
+			return
+		}
+		// Otherwise, return a general 500 error
 		http.Error(w, "Failed to restart test", http.StatusInternalServerError)
+		h.Logger.Debug("Sent 500 Internal Server Error response")
 		return
 	}
+	h.Logger.Debug("RestartTest controller method executed successfully")
 
-	// Respond with the restarted request.
+	// Retrieve updated test details to return to the client
+	h.Logger.Debugf("Retrieving updated test details for TestID: %s", restartReq.TestID)
+	updatedTest, err := h.Controller.GetTestByID(r.Context(), restartReq.TestID)
+	if err != nil {
+		h.Logger.Errorf("Failed to retrieve updated test details: %v", err)
+		http.Error(w, "Failed to retrieve updated test details", http.StatusInternalServerError)
+		h.Logger.Debug("Sent 500 Internal Server Error response for GetTestByID")
+		return
+	}
+	h.Logger.Debugf("Retrieved updated test details: %+v", updatedTest)
+
+	// Respond with the updated test information
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(restartReq)
+	if err := json.NewEncoder(w).Encode(updatedTest); err != nil {
+		h.Logger.Errorf("Failed to encode updated test details: %v", err)
+		// Even if encoding fails, respond with 500
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		h.Logger.Debug("Sent 500 Internal Server Error response for JSON encoding")
+		return
+	}
+	h.Logger.Debug("Sent updated test details in response")
 }
 
 // SaveResults handles saving the results of a load test.
@@ -352,6 +387,44 @@ func (h *Handler) AuthenticateUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"token": token})
+}
+
+// CreateTest handles the creation of a new load test.
+func (h *Handler) CreateTest(w http.ResponseWriter, r *http.Request) {
+	var test models.Test
+	if err := json.NewDecoder(r.Body).Decode(&test); err != nil {
+		h.Logger.Errorf("Failed to decode create-test request: %v", err)
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	// Validate the test struct.
+	if err := h.Validator.Struct(test); err != nil {
+		h.Logger.Errorf("Validation error in create-test: %v", err)
+		var validationErrors []models.ValidationError
+		for _, err := range err.(validator.ValidationErrors) {
+			validationErrors = append(validationErrors, models.ValidationError{
+				Field:   err.Field(),
+				Message: err.Tag(),
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(validationErrors)
+		return
+	}
+
+	// Create the test using the controller.
+	if err := h.Controller.CreateTest(r.Context(), &test); err != nil {
+		h.Logger.Errorf("Failed to create test: %v", err)
+		http.Error(w, "Failed to create test", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with the created test.
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(test)
 }
 
 // HealthCheck handles the /health endpoint.
