@@ -12,15 +12,6 @@ import (
 )
 
 // User represents a user entity in the system.
-//type User struct {
-//	UserID    string    `json:"userID" bson:"userID"`
-//	Username  string    `json:"username" bson:"username"`
-//	Email     string    `json:"email" bson:"email"`
-//	Password  string    `json:"password" bson:"password"`
-//	CreatedAt time.Time `json:"createdAt" bson:"createdAt"`
-//	UpdatedAt time.Time `json:"updatedAt" bson:"updatedAt"`
-//}
-
 type User struct {
 	ID        primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
 	Username  string               `bson:"username" json:"username"`
@@ -45,16 +36,17 @@ type Test struct {
 	TestID        string             `json:"testID" bson:"testID"`
 	UserID        string             `json:"userID" bson:"userID"`
 	LogType       string             `json:"logType" bson:"logType"`
-	LogRate       int                `json:"logRate" validate:"required,min=1"`
-	LogSize       int                `json:"logSize" validate:"required,min=1"`
-	MetricsRate   int                `json:"metricsRate" bson:"metricsRate"`
-	TraceRate     int                `json:"traceRate" bson:"traceRate"`
-	Duration      int                `json:"duration" validate:"required,min=1"`
+	LogRate       int                `json:"logRate,omitempty" validate:"omitempty,min=1"`       // Logs per second
+	LogSize       int                `json:"logSize,omitempty" validate:"omitempty,min=1"`       // Milliseconds per log
+	MetricsRate   int                `json:"metricsRate,omitempty" validate:"omitempty,min=1"`   // Metrics per second
+	TraceRate     int                `json:"traceRate,omitempty" validate:"omitempty,min=1"`     // Traces per second
+	Duration      int                `json:"duration" bson:"duration" validate:"required,min=1"` // Duration in seconds
 	Destination   common.Destination `json:"destination" bson:"destination"`
 	Status        string             `json:"status" bson:"status"`
 	ScheduledTime time.Time          `json:"scheduledTime,omitempty" bson:"scheduledTime,omitempty"`
 	CreatedAt     time.Time          `json:"createdAt" bson:"createdAt"`
 	UpdatedAt     time.Time          `json:"updatedAt" bson:"updatedAt"`
+	CompletedAt   time.Time          `json:"completedAt,omitempty" bson:"completedAt,omitempty"`
 }
 
 // LogEntry represents a log entry.
@@ -84,29 +76,31 @@ type Trace struct {
 
 // ScheduleRequest represents a request to schedule a load test.
 type ScheduleRequest struct {
-	TestID   string    `json:"testID" bson:"testID"`
-	UserID   string    `json:"userID" bson:"userID"`
-	Schedule time.Time `json:"schedule" bson:"schedule"`
+	TestID   string    `json:"testID" bson:"testID" validate:"required"`
+	UserID   string    `json:"userID" bson:"userID" validate:"required"`
+	Schedule time.Time `json:"schedule" bson:"schedule" validate:"required"`
 }
 
 // CancelRequest represents a request to cancel a load test.
 type CancelRequest struct {
-	TestID string `json:"testID" bson:"testID"`
+	TestID string `json:"testID" bson:"testID" validate:"required"`
 }
 
 // RestartRequest represents a request to restart a load test.
 type RestartRequest struct {
-	TestID   string `json:"testID" bson:"testID"`
-	LogRate  int    `json:"logRate" bson:"logRate"`
-	Duration int    `json:"duration" bson:"duration"`
+	TestID      string `json:"testID" bson:"testID" validate:"required"`
+	LogRate     int    `json:"logRate,omitempty" bson:"logRate" validate:"omitempty,min=1"`
+	MetricsRate int    `json:"metricsRate,omitempty" bson:"metricsRate" validate:"omitempty,min=1"`
+	TraceRate   int    `json:"traceRate,omitempty" bson:"traceRate" validate:"omitempty,min=1"`
+	Duration    int    `json:"duration" bson:"duration" validate:"required,min=1"`
 	// Add other configuration fields as needed.
 }
 
 // TestResults represents the results of a load test.
 type TestResults struct {
-	TestID      string    `json:"testID" bson:"testID"`
-	Results     string    `json:"results" bson:"results"`
-	CompletedAt time.Time `json:"completedAt" bson:"completedAt"`
+	TestID      string    `json:"testID" bson:"testID" validate:"required"`
+	Results     string    `json:"results" bson:"results" validate:"required"`
+	CompletedAt time.Time `json:"completedAt" bson:"completedAt" validate:"required"`
 }
 
 // ValidationError represents a structured validation error.
@@ -115,6 +109,8 @@ type ValidationError struct {
 	Message string `json:"message"`
 }
 
-// ErrInvalidToken is returned when a JWT token is invalid.
-var ErrInvalidToken = errors.New("invalid token")
-var ErrTestNotFound = errors.New("test not found")
+// Custom errors
+var (
+	ErrInvalidToken = errors.New("invalid token")
+	ErrTestNotFound = errors.New("test not found")
+)

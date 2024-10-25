@@ -68,6 +68,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.write_timeout", 15)
 	v.SetDefault("server.idle_timeout", 60)
 
+	v.SetDefault("server.loadgen_url", "http://moniflux-loadgen:9080") // Default Loadgen URL
+
 	v.SetDefault("log_level", "info")
 	v.SetDefault("log_format", "json")
 	v.SetDefault("log_output", "stdout")
@@ -150,6 +152,10 @@ func validateConfig(config *common.Config) error {
 
 	if config.Server.LoadgenPort == "" {
 		return fmt.Errorf("server.loadgen_port must be set")
+	}
+
+	if config.Server.LoadgenURL == "" {
+		return fmt.Errorf("server.loadgen_url must be set")
 	}
 
 	// Add more validation rules as needed

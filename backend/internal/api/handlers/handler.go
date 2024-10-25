@@ -3,7 +3,6 @@
 package handlers
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -118,13 +117,15 @@ func (h *Handler) ScheduleTest(w http.ResponseWriter, r *http.Request) {
 // CancelTest handles cancelling a load test.
 func (h *Handler) CancelTest(w http.ResponseWriter, r *http.Request) {
 	var cancelReq models.CancelRequest
+
+	// Decode the request body
 	if err := json.NewDecoder(r.Body).Decode(&cancelReq); err != nil {
 		h.Logger.Errorf("Failed to decode cancel request: %v", err)
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
 
-	// Validate the cancel request.
+	// Validate the cancel request structure
 	if err := h.Validator.Struct(cancelReq); err != nil {
 		h.Logger.Errorf("Validation error: %v", err)
 		var validationErrors []models.ValidationError
@@ -140,11 +141,12 @@ func (h *Handler) CancelTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cancel the test using the controller.
+	// Attempt to cancel the test
 	err := h.Controller.CancelTest(r.Context(), cancelReq.TestID)
 	if err != nil {
-		if errors.Is(err, mongoDriver.ErrNoDocuments) {
-			http.Error(w, "Test not found", http.StatusNotFound)
+		if err.Error() == fmt.Sprintf("test with ID %s is already Completed", cancelReq.TestID) ||
+			err.Error() == fmt.Sprintf("test with ID %s is already Cancelled", cancelReq.TestID) {
+			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		h.Logger.Errorf("Failed to cancel test: %v", err)
@@ -152,86 +154,61 @@ func (h *Handler) CancelTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Respond with a success message.
+	// Return success response
+	h.Logger.Infof("Test %s successfully cancelled", cancelReq.TestID)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
 }
 
 // RestartTest handles restarting a load test.
+// RestartTest now handles the restart logic directly within moniflux-api.
 func (h *Handler) RestartTest(w http.ResponseWriter, r *http.Request) {
-	h.Logger.Debug("Entered RestartTest handler")
+	h.Logger.Info("Entered RestartTest handler")
 
 	var restartReq models.RestartRequest
 
-	// Log the request body for debugging
+	// Decode and log the request payload
 	bodyBytes, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		h.Logger.Errorf("Failed to read request body: %v", err)
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
-	h.Logger.Debugf("Request body: %s", string(bodyBytes))
+	h.Logger.Infof("Request body: %s", string(bodyBytes))
 
-	// Decode the request payload
 	if err := json.Unmarshal(bodyBytes, &restartReq); err != nil {
 		h.Logger.Errorf("Failed to decode restart request: %v", err)
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
-	h.Logger.Debugf("Decoded RestartRequest: %+v", restartReq)
+	h.Logger.Infof("Decoded RestartRequest: %+v", restartReq)
 
-	// Validate the restart request
+	// Validate the request
 	if err := h.Validator.Struct(restartReq); err != nil {
 		h.Logger.Errorf("Validation error: %v", err)
-		var validationErrors []models.ValidationError
-		for _, err := range err.(validator.ValidationErrors) {
-			validationErrors = append(validationErrors, models.ValidationError{
-				Field:   err.Field(),
-				Message: err.Tag(),
-			})
-		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(validationErrors)
-		h.Logger.Debug("Sent validation error response")
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request payload"})
 		return
 	}
-	h.Logger.Debug("RestartRequest validation successful")
 
-	// Construct the internal call to the loadgen service's /tests/restart endpoint
-	loadgenURL := fmt.Sprintf("%s/tests/restart", h.Controller.Config.Server.LoadgenURL)
-	h.Logger.Debugf("Internal call to %s", loadgenURL)
-
-	// Perform the HTTP request to loadgen service
-	resp, err := http.Post(loadgenURL, "application/json", bytes.NewBuffer(bodyBytes))
+	// Attempt to restart the test
+	err = h.Controller.RestartTest(r.Context(), &restartReq)
 	if err != nil {
-		h.Logger.Errorf("Internal call to /tests/restart failed: %v", err)
-		http.Error(w, "Failed to restart test", http.StatusInternalServerError)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Read response from loadgen
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		h.Logger.Errorf("Failed to read response from loadgen service: %v", err)
-		http.Error(w, "Failed to read response from loadgen service", http.StatusInternalServerError)
+		h.Logger.Errorf("Failed to restart test: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"status": "restart failed", "error": err.Error()})
 		return
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		h.Logger.Errorf("Loadgen service returned error: %s", string(body))
-		http.Error(w, "Loadgen service error", http.StatusInternalServerError)
-		return
-	}
+	h.Logger.Infof("Test %s restarted successfully", restartReq.TestID)
 
-	h.Logger.Debug("RestartTest internal call successful")
-
-	// Respond with the success message
+	// Respond with an immediate success message
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(body) // Return the response from loadgen to the client
+	json.NewEncoder(w).Encode(map[string]string{"status": "restarted"})
 }
 
 // SaveResults handles saving the results of a load test.

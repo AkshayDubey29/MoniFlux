@@ -64,7 +64,7 @@ func main() {
 	router.HandleFunc("/tests", handler.StartTest).Methods("POST")
 	router.HandleFunc("/tests/schedule", handler.ScheduleTest).Methods("POST")
 	router.HandleFunc("/tests/cancel", handler.CancelTest).Methods("POST")
-	router.HandleFunc("/tests/restart", handler.RestartTest).Methods("POST")
+	//router.HandleFunc("/tests/restart", handler.RestartTest).Methods("POST")
 	router.HandleFunc("/tests/results", handler.SaveResults).Methods("POST")
 	router.HandleFunc("/tests", handler.GetAllTests).Methods("GET")
 	router.HandleFunc("/tests/{testID}", handler.GetTestByID).Methods("GET")
