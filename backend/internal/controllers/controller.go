@@ -42,70 +42,119 @@ func NewLoadGenController(cfg *common.Config, log *logrus.Logger, mongoClient *m
 	}
 }
 
-// StartTest initiates a new load test.
+// StartTest initiates a new load test or updates an existing one if allowed.
 func (c *LoadGenController) StartTest(ctx context.Context, test *models.Test) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Assign a unique TestID if not provided.
-	if test.TestID == "" {
-		test.TestID = uuid.New().String()
-	}
-
-	// Initialize status and timestamps.
-	test.Status = "Running"
-	test.CreatedAt = time.Now()
-	test.UpdatedAt = time.Now()
-
-	// Use a background context for database operations to avoid context cancellation issues.
-	dbCtx := context.Background()
 	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
-	if _, err := collection.InsertOne(dbCtx, test); err != nil {
-		c.Logger.Errorf("Failed to insert test into database: %v", err)
-		return err
+	filter := bson.M{"testID": test.TestID}
+
+	var existingTest models.Test
+	err := collection.FindOne(ctx, filter).Decode(&existingTest)
+	isNewTest := errors.Is(err, mongo.ErrNoDocuments)
+
+	if isNewTest {
+		// Assign a unique TestID if not provided.
+		if test.TestID == "" {
+			test.TestID = uuid.New().String()
+		}
+
+		// Initialize status and timestamps.
+		test.Status = "Running"
+		test.CreatedAt = time.Now()
+		test.UpdatedAt = time.Now()
+
+		// Insert as a new test.
+		_, err = collection.InsertOne(ctx, test)
+		if err != nil {
+			c.Logger.Errorf("Failed to insert new test into database: %v", err)
+			return err
+		}
+		c.Logger.Infof("Test %s started and inserted as new", test.TestID)
+	} else {
+		// Check if the existing test is in a state that allows starting.
+		if existingTest.Status == "Running" {
+			return fmt.Errorf("test with ID %s is already running", test.TestID)
+		}
+		if existingTest.Status != "Cancelled" && existingTest.Status != "Completed" && existingTest.Status != "Error" {
+			return fmt.Errorf("test with ID %s cannot be started in its current state: %s", test.TestID, existingTest.Status)
+		}
+
+		// Update the existing test's configuration and status.
+		update := bson.M{
+			"$set": bson.M{
+				"logRate":       test.LogRate,
+				"metricsRate":   test.MetricsRate,
+				"traceRate":     test.TraceRate,
+				"logSize":       test.LogSize,
+				"duration":      test.Duration,
+				"status":        "Running",
+				"updatedAt":     time.Now(),
+				"completedAt":   time.Time{},
+				"scheduledTime": time.Time{},
+			},
+		}
+
+		_, err = collection.UpdateOne(ctx, filter, update)
+		if err != nil {
+			c.Logger.Errorf("Failed to update existing test in database: %v", err)
+			return err
+		}
+		c.Logger.Infof("Test %s configuration updated and started", test.TestID)
 	}
 
-	// Create a cancellable context for the load generation process.
-	loadCtx, cancel := context.WithCancel(context.Background()) // Detached from HTTP request context
+	return c.startOrRestartLoadGeneration(ctx, test)
+}
 
-	// Store the TestTask for future cancellation.
-	c.tests[test.TestID] = &TestTask{
-		CancelFunc: cancel,
+// startOrRestartLoadGeneration starts or restarts the load generation for a test.
+func (c *LoadGenController) startOrRestartLoadGeneration(ctx context.Context, test *models.Test) error {
+	if task, exists := c.tests[test.TestID]; exists {
+		task.CancelFunc()
+		delete(c.tests, test.TestID)
+		c.Logger.Infof("Existing load generation for test %s stopped", test.TestID)
 	}
+
+	// Create a new cancellable context for the load generation process.
+	loadCtx, cancel := context.WithCancel(context.Background())
+	c.tests[test.TestID] = &TestTask{CancelFunc: cancel}
 
 	// Start load generation in a separate goroutine.
 	go c.generateLoad(loadCtx, test)
 
-	c.Logger.Infof("Load test started: %s with LogRate: %d logs/sec, MetricsRate: %d metrics/sec, TraceRate: %d traces/sec, Duration: %d seconds",
-		test.TestID, test.LogRate, test.MetricsRate, test.TraceRate, test.Duration)
+	c.Logger.Infof("Load generation task started for test %s", test.TestID)
 	return nil
 }
 
-// generateLoad simulates load generation.
+// generateLoad simulates load generation based on the test configuration.
 func (c *LoadGenController) generateLoad(ctx context.Context, test *models.Test) {
-	// Validate rates
+	defer func() {
+		// Upon completion or cancellation, remove the test from the running tests map.
+		c.mu.Lock()
+		delete(c.tests, test.TestID)
+		c.mu.Unlock()
+	}()
+
 	if test.LogRate <= 0 && test.MetricsRate <= 0 && test.TraceRate <= 0 {
 		c.Logger.Errorf("No valid rate specified for test %s. At least one of LogRate, MetricsRate, or TraceRate must be > 0.", test.TestID)
 		c.updateTestStatus(context.Background(), test.TestID, "Error")
 		return
 	}
 
-	// Calculate tick durations
-	var logTicker *time.Ticker
+	var logTicker, metricTicker, traceTicker *time.Ticker
+
 	if test.LogRate > 0 {
 		logInterval := time.Second / time.Duration(test.LogRate)
 		logTicker = time.NewTicker(logInterval)
 		defer logTicker.Stop()
 	}
 
-	var metricTicker *time.Ticker
 	if test.MetricsRate > 0 {
 		metricInterval := time.Second / time.Duration(test.MetricsRate)
 		metricTicker = time.NewTicker(metricInterval)
 		defer metricTicker.Stop()
 	}
 
-	var traceTicker *time.Ticker
 	if test.TraceRate > 0 {
 		traceInterval := time.Second / time.Duration(test.TraceRate)
 		traceTicker = time.NewTicker(traceInterval)
@@ -163,7 +212,7 @@ func (c *LoadGenController) generateLog(ctx context.Context, test *models.Test) 
 		TestID:    test.TestID,
 		Timestamp: time.Now(),
 		Message:   "Simulated log entry",
-		Level:     "INFO",
+		Level:     test.LogType,
 	}
 
 	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("logs")
@@ -232,11 +281,6 @@ func (c *LoadGenController) updateTestStatus(ctx context.Context, testID, status
 		},
 	}
 
-	if status == "Cancelled" || status == "Error" || status == "Completed" {
-		// Only set completedAt if the test is no longer running
-		update["$set"].(bson.M)["completedAt"] = time.Now()
-	}
-
 	_, err := collection.UpdateOne(ctx, filter, update)
 	if err != nil {
 		c.Logger.Errorf("Failed to update status for test %s: %v", testID, err)
@@ -252,11 +296,11 @@ func (c *LoadGenController) ScheduleTest(ctx context.Context, scheduleReq *model
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var test models.Test
 	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
-	err := collection.FindOne(ctx, bson.M{
-		"testID": scheduleReq.TestID,
-	}).Decode(&test)
+	filter := bson.M{"testID": scheduleReq.TestID}
+
+	var test models.Test
+	err := collection.FindOne(ctx, filter).Decode(&test)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return fmt.Errorf("test with ID %s not found", scheduleReq.TestID)
@@ -264,11 +308,12 @@ func (c *LoadGenController) ScheduleTest(ctx context.Context, scheduleReq *model
 		return err
 	}
 
-	// Only allow scheduling if the test is in "Pending" or "Scheduled" state
+	// Only allow scheduling if the test is in "Pending" or "Scheduled" state.
 	if test.Status != "Pending" && test.Status != "Scheduled" {
 		return fmt.Errorf("test with ID %s cannot be scheduled in its current state: %s", scheduleReq.TestID, test.Status)
 	}
 
+	// Update the test's scheduledTime and status.
 	update := bson.M{
 		"$set": bson.M{
 			"scheduledTime": scheduleReq.Schedule,
@@ -276,21 +321,22 @@ func (c *LoadGenController) ScheduleTest(ctx context.Context, scheduleReq *model
 			"updatedAt":     time.Now(),
 		},
 	}
-	if _, err = collection.UpdateOne(ctx, bson.M{
-		"testID": scheduleReq.TestID,
-	}, update); err != nil {
+
+	_, err = collection.UpdateOne(ctx, filter, update)
+	if err != nil {
 		return err
 	}
 
-	// Start a goroutine to execute the test at the scheduled time
-	go c.scheduleTestExecution(context.Background(), scheduleReq.TestID, scheduleReq.Schedule)
-
 	c.Logger.Infof("Test %s scheduled to start at %v", scheduleReq.TestID, scheduleReq.Schedule)
+
+	// Start a goroutine to execute the test at the scheduled time.
+	go c.scheduleTestExecution(scheduleReq.TestID, scheduleReq.Schedule)
+
 	return nil
 }
 
 // scheduleTestExecution starts the test when the scheduled time arrives.
-func (c *LoadGenController) scheduleTestExecution(ctx context.Context, testID string, startTime time.Time) {
+func (c *LoadGenController) scheduleTestExecution(testID string, startTime time.Time) {
 	timerDuration := time.Until(startTime)
 	if timerDuration < 0 {
 		c.Logger.Errorf("Scheduled start time %v is in the past for test %s", startTime, testID)
@@ -305,23 +351,23 @@ func (c *LoadGenController) scheduleTestExecution(ctx context.Context, testID st
 		c.mu.Lock()
 		defer c.mu.Unlock()
 
-		var test models.Test
 		collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
-		err := collection.FindOne(ctx, bson.M{
-			"testID": testID,
-		}).Decode(&test)
+		filter := bson.M{"testID": testID}
+
+		var test models.Test
+		err := collection.FindOne(context.Background(), filter).Decode(&test)
 		if err != nil {
 			c.Logger.Errorf("Failed to retrieve test %s for scheduled start: %v", testID, err)
 			return
 		}
 
-		// Only start if the test is still in "Scheduled" status
+		// Only start if the test is still in "Scheduled" status.
 		if test.Status != "Scheduled" {
 			c.Logger.Infof("Test %s is no longer in 'Scheduled' status. Current status: %s", testID, test.Status)
 			return
 		}
 
-		// Start the test
+		// Start the test.
 		err = c.StartTest(context.Background(), &test)
 		if err != nil {
 			c.Logger.Errorf("Failed to start scheduled test %s: %v", testID, err)
@@ -330,9 +376,6 @@ func (c *LoadGenController) scheduleTestExecution(ctx context.Context, testID st
 		}
 
 		c.Logger.Infof("Scheduled test %s started successfully", testID)
-
-	case <-ctx.Done():
-		c.Logger.Infof("Scheduling for test %s cancelled", testID)
 	}
 }
 
@@ -341,18 +384,13 @@ func (c *LoadGenController) CancelTest(ctx context.Context, testID string) error
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Log the cancellation attempt
 	c.Logger.Infof("Attempting to cancel test with ID: %s", testID)
 
-	// Access the test collection in the database
 	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
+	filter := bson.M{"testID": testID}
 
-	// Retrieve the test document by testID
 	var test models.Test
-	err := collection.FindOne(ctx, bson.M{
-		"testID": testID,
-	}).Decode(&test)
-
+	err := collection.FindOne(ctx, filter).Decode(&test)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return fmt.Errorf("test with ID %s not found", testID)
@@ -361,15 +399,14 @@ func (c *LoadGenController) CancelTest(ctx context.Context, testID string) error
 		return err
 	}
 
-	// Check if the test is already completed or canceled
+	// Check if the test is already completed or cancelled.
 	if test.Status == "Completed" || test.Status == "Cancelled" {
 		c.Logger.Infof("Test with ID %s is already %s", testID, test.Status)
 		return fmt.Errorf("test with ID %s is already %s", testID, test.Status)
 	}
 
-	// Check if the test is running
+	// If the test is running, cancel the load generation.
 	if test.Status == "Running" {
-		// Check if the test is in memory as a running task
 		if task, exists := c.tests[testID]; exists {
 			task.CancelFunc()
 			delete(c.tests, testID)
@@ -377,25 +414,21 @@ func (c *LoadGenController) CancelTest(ctx context.Context, testID string) error
 		} else {
 			c.Logger.Warnf("Test %s is marked as running but no task found in memory", testID)
 		}
-	} else if test.Status == "Scheduled" {
-		// For scheduled tests, simply update the status
 	}
 
-	// Update the test's status to "Cancelled" in the database
+	// Update the test's status to "Cancelled" in the database.
 	update := bson.M{
 		"$set": bson.M{
 			"status":        "Cancelled",
 			"completedAt":   time.Now(),
 			"updatedAt":     time.Now(),
-			"scheduledTime": time.Time{}, // Reset scheduledTime if applicable
+			"scheduledTime": time.Time{},
 		},
 	}
-	_, updateErr := collection.UpdateOne(ctx, bson.M{
-		"testID": testID,
-	}, update)
 
-	if updateErr != nil {
-		c.Logger.Errorf("Failed to update test status in DB for testID %s: %v", testID, updateErr)
+	_, err = collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		c.Logger.Errorf("Failed to update test status in DB for testID %s: %v", testID, err)
 		return fmt.Errorf("failed to update test status in DB for testID %s", testID)
 	}
 
@@ -405,86 +438,89 @@ func (c *LoadGenController) CancelTest(ctx context.Context, testID string) error
 
 // RestartTest restarts an existing test with updated configurations.
 func (c *LoadGenController) RestartTest(ctx context.Context, restartReq *models.RestartRequest) error {
-	c.Logger.Infof("Received request to restart test with ID: %s", restartReq.TestID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var test models.Test
-	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
+	c.Logger.Infof("Received request to restart test with ID: %s", restartReq.TestID)
 
-	// Attempt to retrieve the test document
-	c.Logger.Info("Attempting to retrieve the test document from MongoDB")
-	err := collection.FindOne(ctx, bson.M{
-		"testID": restartReq.TestID,
-	}).Decode(&test)
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
+	filter := bson.M{"testID": restartReq.TestID}
+
+	var test models.Test
+	err := collection.FindOne(ctx, filter).Decode(&test)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			c.Logger.Errorf("Test with ID %s not found", restartReq.TestID)
 			return fmt.Errorf("test with ID %s not found", restartReq.TestID)
 		}
 		c.Logger.Errorf("Error retrieving test with ID %s: %v", restartReq.TestID, err)
 		return err
 	}
 
-	// Check if the test status allows restarting
+	// Check if the test status allows restarting.
 	if test.Status != "Completed" && test.Status != "Cancelled" && test.Status != "Error" {
-		c.Logger.Errorf("Test with ID %s cannot be restarted in its current state: %s", restartReq.TestID, test.Status)
 		return fmt.Errorf("test with ID %s cannot be restarted in its current state: %s", restartReq.TestID, test.Status)
 	}
 
-	// Update the test configurations if provided
-	updated := false
+	// Update the test's configuration if provided.
+	updatedFields := bson.M{}
 	if restartReq.LogRate > 0 {
-		c.Logger.Infof("Updating LogRate to %d logs/sec", restartReq.LogRate)
+		c.Logger.Infof("Updating LogRate to %d logs/sec for test %s", restartReq.LogRate, restartReq.TestID)
 		test.LogRate = restartReq.LogRate
-		updated = true
+		updatedFields["logRate"] = restartReq.LogRate
 	}
 	if restartReq.MetricsRate > 0 {
-		c.Logger.Infof("Updating MetricsRate to %d metrics/sec", restartReq.MetricsRate)
+		c.Logger.Infof("Updating MetricsRate to %d metrics/sec for test %s", restartReq.MetricsRate, restartReq.TestID)
 		test.MetricsRate = restartReq.MetricsRate
-		updated = true
+		updatedFields["metricsRate"] = restartReq.MetricsRate
 	}
 	if restartReq.TraceRate > 0 {
-		c.Logger.Infof("Updating TraceRate to %d traces/sec", restartReq.TraceRate)
+		c.Logger.Infof("Updating TraceRate to %d traces/sec for test %s", restartReq.TraceRate, restartReq.TestID)
 		test.TraceRate = restartReq.TraceRate
-		updated = true
+		updatedFields["traceRate"] = restartReq.TraceRate
 	}
 	if restartReq.Duration > 0 {
-		c.Logger.Infof("Updating Duration to %d seconds", restartReq.Duration)
+		c.Logger.Infof("Updating Duration to %d seconds for test %s", restartReq.Duration, restartReq.TestID)
 		test.Duration = restartReq.Duration
-		updated = true
+		updatedFields["duration"] = restartReq.Duration
 	}
 
-	if !updated {
+	if len(updatedFields) == 0 {
 		c.Logger.Warnf("No valid configuration fields provided to update for test %s", restartReq.TestID)
 		return fmt.Errorf("no valid configuration fields provided to update")
 	}
 
-	// Update the database status to "Running" before load generation starts
+	// Update the test's status and reset relevant fields.
+	updatedFields["status"] = "Running"
+	updatedFields["updatedAt"] = time.Now()
+	updatedFields["completedAt"] = time.Time{}
+	updatedFields["scheduledTime"] = time.Time{}
+
 	update := bson.M{
-		"$set": bson.M{
-			"status":        "Running",
-			"updatedAt":     time.Now(),
-			"completedAt":   time.Time{},
-			"logRate":       test.LogRate,
-			"metricsRate":   test.MetricsRate,
-			"traceRate":     test.TraceRate,
-			"duration":      test.Duration,
-			"scheduledTime": time.Time{},
-		},
-	}
-	if _, err := collection.UpdateOne(ctx, bson.M{"testID": restartReq.TestID}, update); err != nil {
-		c.Logger.Errorf("Failed to reset test status for ID %s: %v", restartReq.TestID, err)
-		return fmt.Errorf("failed to reset test status: %w", err)
+		"$set": updatedFields,
 	}
 
-	// Start the load generation asynchronously, logging any errors if encountered
-	go func() {
-		if err := c.StartTest(context.Background(), &test); err != nil {
-			c.Logger.Errorf("Load generation failed for restarted test %s: %v", restartReq.TestID, err)
-			c.updateTestStatus(context.Background(), restartReq.TestID, "Error")
-		}
-	}()
+	_, err = collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		c.Logger.Errorf("Failed to update test %s in database: %v", restartReq.TestID, err)
+		return fmt.Errorf("failed to update test %s in database: %v", restartReq.TestID, err)
+	}
+
+	c.Logger.Infof("Test %s configuration updated for restart", restartReq.TestID)
+
+	// If the test was previously running, cancel the existing load generation.
+	if task, exists := c.tests[restartReq.TestID]; exists {
+		task.CancelFunc()
+		delete(c.tests, restartReq.TestID)
+		c.Logger.Infof("Existing load generation for test %s stopped for restart", restartReq.TestID)
+	}
+
+	// Start load generation with updated configuration.
+	err = c.startOrRestartLoadGeneration(ctx, &test)
+	if err != nil {
+		c.Logger.Errorf("Failed to restart load generation for test %s: %v", restartReq.TestID, err)
+		c.updateTestStatus(context.Background(), restartReq.TestID, "Error")
+		return err
+	}
 
 	c.Logger.Infof("Test %s restarted successfully", restartReq.TestID)
 	return nil
@@ -493,12 +529,10 @@ func (c *LoadGenController) RestartTest(ctx context.Context, restartReq *models.
 // SaveResults saves the results of a completed test.
 func (c *LoadGenController) SaveResults(ctx context.Context, results *models.TestResults) error {
 	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
+	filter := bson.M{"testID": results.TestID}
 
-	// Retrieve the test
 	var test models.Test
-	err := collection.FindOne(ctx, bson.M{
-		"testID": results.TestID,
-	}).Decode(&test)
+	err := collection.FindOne(ctx, filter).Decode(&test)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return fmt.Errorf("test with ID %s not found", results.TestID)
@@ -506,18 +540,19 @@ func (c *LoadGenController) SaveResults(ctx context.Context, results *models.Tes
 		return err
 	}
 
-	// Check if the test is in a state that allows saving results
+	// Check if the test is in a state that allows saving results.
 	if test.Status != "Completed" && test.Status != "Error" {
 		return fmt.Errorf("test with ID %s cannot have results saved in its current state: %s", results.TestID, test.Status)
 	}
 
-	// Insert the test results
+	// Insert the test results.
 	resultsCollection := c.MongoClient.Database(c.Config.MongoDB).Collection("test_results")
-	if _, err := resultsCollection.InsertOne(ctx, results); err != nil {
+	_, err = resultsCollection.InsertOne(ctx, results)
+	if err != nil {
 		return fmt.Errorf("failed to save test results: %w", err)
 	}
 
-	// Update the test status to "Results Saved"
+	// Update the test's status to "Results Saved".
 	update := bson.M{
 		"$set": bson.M{
 			"status":        "Results Saved",
@@ -526,9 +561,9 @@ func (c *LoadGenController) SaveResults(ctx context.Context, results *models.Tes
 			"scheduledTime": time.Time{},
 		},
 	}
-	if _, err := collection.UpdateOne(ctx, bson.M{
-		"testID": results.TestID,
-	}, update); err != nil {
+
+	_, err = collection.UpdateOne(ctx, filter, update)
+	if err != nil {
 		return fmt.Errorf("failed to update test status after saving results: %w", err)
 	}
 
@@ -569,9 +604,10 @@ func (c *LoadGenController) GetAllTests(ctx context.Context) ([]models.Test, err
 func (c *LoadGenController) GetTestByID(ctx context.Context, testID string) (*models.Test, error) {
 	var test models.Test
 	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
-	if err := collection.FindOne(ctx, bson.M{
-		"testID": testID,
-	}).Decode(&test); err != nil {
+	filter := bson.M{"testID": testID}
+
+	err := collection.FindOne(ctx, filter).Decode(&test)
+	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("test with ID %s not found", testID)
 		}
@@ -591,11 +627,13 @@ func (c *LoadGenController) StopAllTests(ctx context.Context) error {
 		delete(c.tests, testID)
 		c.Logger.Infof("Stopped test: %s", testID)
 
-		if err := c.updateTestStatus(ctx, testID, "Stopped"); err != nil {
+		err := c.updateTestStatus(ctx, testID, "Stopped")
+		if err != nil {
 			c.Logger.Errorf("Failed to update status for stopped test %s: %v", testID, err)
 		}
 	}
 
+	c.Logger.Infof("All running tests have been stopped")
 	return nil
 }
 
@@ -603,6 +641,17 @@ func (c *LoadGenController) StopAllTests(ctx context.Context) error {
 func (c *LoadGenController) CreateTest(ctx context.Context, test *models.Test) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
+	filter := bson.M{"testID": test.TestID}
+
+	var existingTest models.Test
+	err := collection.FindOne(ctx, filter).Decode(&existingTest)
+	isNewTest := errors.Is(err, mongo.ErrNoDocuments)
+
+	if !isNewTest {
+		return fmt.Errorf("test with ID %s already exists", test.TestID)
+	}
 
 	// Assign a unique TestID if not provided.
 	if test.TestID == "" {
@@ -614,13 +663,13 @@ func (c *LoadGenController) CreateTest(ctx context.Context, test *models.Test) e
 	test.CreatedAt = time.Now()
 	test.UpdatedAt = time.Now()
 
-	// Insert the test into the database.
-	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
-	if _, err := collection.InsertOne(ctx, test); err != nil {
-		c.Logger.Errorf("Failed to insert test into database: %v", err)
+	// Insert as a new test.
+	_, err = collection.InsertOne(ctx, test)
+	if err != nil {
+		c.Logger.Errorf("Failed to insert new test into database: %v", err)
 		return err
 	}
 
-	c.Logger.Infof("Test created: %s", test.TestID)
+	c.Logger.Infof("Test %s created successfully", test.TestID)
 	return nil
 }
