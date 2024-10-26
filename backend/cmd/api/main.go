@@ -12,16 +12,17 @@ import (
 	"time"
 
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/api/routers"
+	"github.com/AkshayDubey29/MoniFlux/backend/internal/config/utils"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/controllers"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/db/mongo"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/services/authentication"
-	"github.com/AkshayDubey29/MoniFlux/backend/pkg/config"
 	"github.com/AkshayDubey29/MoniFlux/backend/pkg/logger"
 )
 
 func main() {
 	// Load configuration from config.yaml
-	cfg, err := config.LoadConfig("configs/config.yaml")
+	// Load configuration from config.yaml
+	cfg, err := utils.LoadConfig("configs/config.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}

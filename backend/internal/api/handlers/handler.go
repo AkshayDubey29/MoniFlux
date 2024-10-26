@@ -6,18 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"net/http"
 	"time"
 
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/api/models"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/controllers"
 	"github.com/AkshayDubey29/MoniFlux/backend/internal/services/authentication"
-	validator "github.com/go-playground/validator/v10" // Aliased import for clarity
+	validator "github.com/go-playground/validator/v10"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
-	mongoDriver "go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // Handler encapsulates the controller, validator, and logger.
@@ -39,6 +37,8 @@ func NewHandler(controller *controllers.LoadGenController, authService *authenti
 }
 
 // StartTest handles the initiation of a new load test.
+// backend/internal/api/handlers/handler.go
+
 func (h *Handler) StartTest(w http.ResponseWriter, r *http.Request) {
 	var test models.Test
 	if err := json.NewDecoder(r.Body).Decode(&test); err != nil {
@@ -47,19 +47,29 @@ func (h *Handler) StartTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Log the incoming test details
+	h.Logger.Debugf("Received Test: %+v", test)
+
+	// Assign default values if necessary (if not handled in controller)
+	// Example:
+	if test.Destination.Type == "file" {
+		if test.Destination.FileCount == 0 {
+			test.Destination.FileCount = 10
+		}
+		if test.Destination.FileFreq == 0 {
+			test.Destination.FileFreq = 5
+		}
+	} else if test.Destination.Type == "http" {
+		if test.Destination.Port == 0 {
+			test.Destination.Port = 80
+		}
+	}
+
 	// Validate the test struct.
 	if err := h.Validator.Struct(test); err != nil {
 		h.Logger.Errorf("Validation error: %v", err)
-		var validationErrors []models.ValidationError
-		for _, err := range err.(validator.ValidationErrors) {
-			validationErrors = append(validationErrors, models.ValidationError{
-				Field:   err.Field(),
-				Message: err.Tag(),
-			})
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(validationErrors)
+		validationErrors := extractValidationErrors(err)
+		respondWithJSON(w, http.StatusBadRequest, validationErrors)
 		return
 	}
 
@@ -71,47 +81,35 @@ func (h *Handler) StartTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Respond with the created test.
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(test)
+	respondWithJSON(w, http.StatusCreated, test)
 }
 
 // ScheduleTest handles scheduling a load test.
 func (h *Handler) ScheduleTest(w http.ResponseWriter, r *http.Request) {
-	var schedule models.ScheduleRequest
-	if err := json.NewDecoder(r.Body).Decode(&schedule); err != nil {
+	var scheduleReq models.ScheduleRequest
+	if err := json.NewDecoder(r.Body).Decode(&scheduleReq); err != nil {
 		h.Logger.Errorf("Failed to decode schedule request: %v", err)
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
 
 	// Validate the schedule request.
-	if err := h.Validator.Struct(schedule); err != nil {
+	if err := h.Validator.Struct(scheduleReq); err != nil {
 		h.Logger.Errorf("Validation error: %v", err)
-		var validationErrors []models.ValidationError
-		for _, err := range err.(validator.ValidationErrors) {
-			validationErrors = append(validationErrors, models.ValidationError{
-				Field:   err.Field(),
-				Message: err.Tag(),
-			})
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(validationErrors)
+		validationErrors := extractValidationErrors(err)
+		respondWithJSON(w, http.StatusBadRequest, validationErrors)
 		return
 	}
 
 	// Schedule the test using the controller.
-	if err := h.Controller.ScheduleTest(r.Context(), &schedule); err != nil {
+	if err := h.Controller.ScheduleTest(r.Context(), &scheduleReq); err != nil {
 		h.Logger.Errorf("Failed to schedule test: %v", err)
 		http.Error(w, "Failed to schedule test", http.StatusInternalServerError)
 		return
 	}
 
 	// Respond with the scheduled request.
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(schedule)
+	respondWithJSON(w, http.StatusOK, scheduleReq)
 }
 
 // CancelTest handles cancelling a load test.
@@ -128,24 +126,15 @@ func (h *Handler) CancelTest(w http.ResponseWriter, r *http.Request) {
 	// Validate the cancel request structure
 	if err := h.Validator.Struct(cancelReq); err != nil {
 		h.Logger.Errorf("Validation error: %v", err)
-		var validationErrors []models.ValidationError
-		for _, err := range err.(validator.ValidationErrors) {
-			validationErrors = append(validationErrors, models.ValidationError{
-				Field:   err.Field(),
-				Message: err.Tag(),
-			})
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(validationErrors)
+		validationErrors := extractValidationErrors(err)
+		respondWithJSON(w, http.StatusBadRequest, validationErrors)
 		return
 	}
 
 	// Attempt to cancel the test
 	err := h.Controller.CancelTest(r.Context(), cancelReq.TestID)
 	if err != nil {
-		if err.Error() == fmt.Sprintf("test with ID %s is already Completed", cancelReq.TestID) ||
-			err.Error() == fmt.Sprintf("test with ID %s is already Cancelled", cancelReq.TestID) {
+		if errors.Is(err, models.ErrTestAlreadyCompleted) || errors.Is(err, models.ErrTestAlreadyCancelled) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
@@ -156,28 +145,17 @@ func (h *Handler) CancelTest(w http.ResponseWriter, r *http.Request) {
 
 	// Return success response
 	h.Logger.Infof("Test %s successfully cancelled", cancelReq.TestID)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
 // RestartTest handles restarting a load test.
-// RestartTest now handles the restart logic directly within moniflux-api.
 func (h *Handler) RestartTest(w http.ResponseWriter, r *http.Request) {
 	h.Logger.Info("Entered RestartTest handler")
 
 	var restartReq models.RestartRequest
 
-	// Decode and log the request payload
-	bodyBytes, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		h.Logger.Errorf("Failed to read request body: %v", err)
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
-		return
-	}
-	h.Logger.Infof("Request body: %s", string(bodyBytes))
-
-	if err := json.Unmarshal(bodyBytes, &restartReq); err != nil {
+	// Decode the request payload
+	if err := json.NewDecoder(r.Body).Decode(&restartReq); err != nil {
 		h.Logger.Errorf("Failed to decode restart request: %v", err)
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
@@ -187,28 +165,26 @@ func (h *Handler) RestartTest(w http.ResponseWriter, r *http.Request) {
 	// Validate the request
 	if err := h.Validator.Struct(restartReq); err != nil {
 		h.Logger.Errorf("Validation error: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request payload"})
+		validationErrors := extractValidationErrors(err)
+		respondWithJSON(w, http.StatusBadRequest, validationErrors)
 		return
 	}
 
 	// Attempt to restart the test
-	err = h.Controller.RestartTest(r.Context(), &restartReq)
+	err := h.Controller.RestartTest(r.Context(), &restartReq)
 	if err != nil {
 		h.Logger.Errorf("Failed to restart test: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"status": "restart failed", "error": err.Error()})
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{
+			"status": "restart failed",
+			"error":  err.Error(),
+		})
 		return
 	}
 
 	h.Logger.Infof("Test %s restarted successfully", restartReq.TestID)
 
 	// Respond with an immediate success message
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "restarted"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "restarted"})
 }
 
 // SaveResults handles saving the results of a load test.
@@ -223,16 +199,8 @@ func (h *Handler) SaveResults(w http.ResponseWriter, r *http.Request) {
 	// Validate the test results.
 	if err := h.Validator.Struct(results); err != nil {
 		h.Logger.Errorf("Validation error: %v", err)
-		var validationErrors []models.ValidationError
-		for _, err := range err.(validator.ValidationErrors) {
-			validationErrors = append(validationErrors, models.ValidationError{
-				Field:   err.Field(),
-				Message: err.Tag(),
-			})
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(validationErrors)
+		validationErrors := extractValidationErrors(err)
+		respondWithJSON(w, http.StatusBadRequest, validationErrors)
 		return
 	}
 
@@ -244,9 +212,7 @@ func (h *Handler) SaveResults(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Respond with the saved results.
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(results)
+	respondWithJSON(w, http.StatusOK, results)
 }
 
 // GetAllTests handles retrieving all active and scheduled tests.
@@ -259,9 +225,7 @@ func (h *Handler) GetAllTests(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Respond with the list of tests.
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(tests)
+	respondWithJSON(w, http.StatusOK, tests)
 }
 
 // GetTestByID handles retrieving a specific test by its TestID.
@@ -276,7 +240,7 @@ func (h *Handler) GetTestByID(w http.ResponseWriter, r *http.Request) {
 
 	test, err := h.Controller.GetTestByID(r.Context(), testID)
 	if err != nil {
-		if errors.Is(err, mongoDriver.ErrNoDocuments) {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			http.Error(w, "Test not found", http.StatusNotFound)
 			return
 		}
@@ -286,17 +250,15 @@ func (h *Handler) GetTestByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Respond with the test details.
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(test)
+	respondWithJSON(w, http.StatusOK, test)
 }
 
 // RegisterUser handles user registration.
 func (h *Handler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Username string `json:"username" validate:"required"`
+		Username string `json:"username" validate:"required,min=3,max=30"`
 		Email    string `json:"email" validate:"required,email"`
-		Password string `json:"password" validate:"required"`
+		Password string `json:"password" validate:"required,min=8"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -308,16 +270,8 @@ func (h *Handler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 	// Validate the registration request.
 	if err := h.Validator.Struct(req); err != nil {
 		h.Logger.Errorf("Validation error: %v", err)
-		var validationErrors []models.ValidationError
-		for _, err := range err.(validator.ValidationErrors) {
-			validationErrors = append(validationErrors, models.ValidationError{
-				Field:   err.Field(),
-				Message: err.Tag(),
-			})
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(validationErrors)
+		validationErrors := extractValidationErrors(err)
+		respondWithJSON(w, http.StatusBadRequest, validationErrors)
 		return
 	}
 
@@ -328,14 +282,15 @@ func (h *Handler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
+	// Respond with a success message.
+	respondWithJSON(w, http.StatusCreated, map[string]string{"status": "user registered successfully"})
 }
 
 // AuthenticateUser handles user authentication.
 func (h *Handler) AuthenticateUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Username string `json:"username" validate:"required"`
-		Password string `json:"password" validate:"required"`
+		Username string `json:"username" validate:"required,min=3,max=30"`
+		Password string `json:"password" validate:"required,min=8"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -347,16 +302,8 @@ func (h *Handler) AuthenticateUser(w http.ResponseWriter, r *http.Request) {
 	// Validate the authentication request.
 	if err := h.Validator.Struct(req); err != nil {
 		h.Logger.Errorf("Validation error: %v", err)
-		var validationErrors []models.ValidationError
-		for _, err := range err.(validator.ValidationErrors) {
-			validationErrors = append(validationErrors, models.ValidationError{
-				Field:   err.Field(),
-				Message: err.Tag(),
-			})
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(validationErrors)
+		validationErrors := extractValidationErrors(err)
+		respondWithJSON(w, http.StatusBadRequest, validationErrors)
 		return
 	}
 
@@ -369,28 +316,16 @@ func (h *Handler) AuthenticateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Respond with the JWT token.
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"token": token})
+	respondWithJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 
 // CreateTest handles the creation of a new load test.
 func (h *Handler) CreateTest(w http.ResponseWriter, r *http.Request) {
 	h.Logger.Debugf("Received request to create test at %v", time.Now())
 
-	// Log incoming request body
-	var requestBodyBytes []byte
-	requestBodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		h.Logger.Errorf("Failed to read request body: %v", err)
-		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
-		return
-	}
-	h.Logger.Debugf("CreateTest request body: %s", string(requestBodyBytes))
-
 	// Decode the request body into the Test struct
 	var test models.Test
-	if err := json.Unmarshal(requestBodyBytes, &test); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&test); err != nil {
 		h.Logger.Errorf("Failed to decode create-test request: %v", err)
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
@@ -400,16 +335,8 @@ func (h *Handler) CreateTest(w http.ResponseWriter, r *http.Request) {
 	// Validate the test struct
 	if err := h.Validator.Struct(test); err != nil {
 		h.Logger.Errorf("Validation error in create-test: %v", err)
-		var validationErrors []models.ValidationError
-		for _, err := range err.(validator.ValidationErrors) {
-			validationErrors = append(validationErrors, models.ValidationError{
-				Field:   err.Field(),
-				Message: err.Tag(),
-			})
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(validationErrors)
+		validationErrors := extractValidationErrors(err)
+		respondWithJSON(w, http.StatusBadRequest, validationErrors)
 		return
 	}
 	h.Logger.Debug("Test object passed validation")
@@ -424,17 +351,52 @@ func (h *Handler) CreateTest(w http.ResponseWriter, r *http.Request) {
 	h.Logger.Debugf("Test created successfully: %+v", test)
 
 	// Respond with the created test
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(test); err != nil {
-		h.Logger.Errorf("Failed to encode response: %v", err)
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-	}
-	h.Logger.Debug("CreateTest response sent successfully")
+	respondWithJSON(w, http.StatusCreated, test)
 }
 
 // HealthCheck handles the /health endpoint.
 func HealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
+}
+
+// Helper function to extract validation errors.
+func extractValidationErrors(err error) []models.ValidationError {
+	var validationErrors []models.ValidationError
+	for _, err := range err.(validator.ValidationErrors) {
+		validationErrors = append(validationErrors, models.ValidationError{
+			Field:   err.Field(),
+			Message: getValidationMessage(err),
+		})
+	}
+	return validationErrors
+}
+
+// Helper function to map validation tags to user-friendly messages.
+func getValidationMessage(fe validator.FieldError) string {
+	switch fe.Tag() {
+	case "required":
+		return "This field is required"
+	case "email":
+		return "Invalid email format"
+	case "min":
+		return fmt.Sprintf("Minimum value is %s", fe.Param())
+	case "max":
+		return fmt.Sprintf("Maximum value is %s", fe.Param())
+	case "oneof":
+		return "Invalid value"
+	default:
+		return "Invalid value"
+	}
+}
+
+// Helper function to respond with JSON.
+func respondWithJSON(w http.ResponseWriter, statusCode int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		// If encoding fails, log the error and send a generic error response.
+		logrus.Errorf("Failed to encode response: %v", err)
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
 }
