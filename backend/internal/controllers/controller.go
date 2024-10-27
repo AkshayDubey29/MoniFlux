@@ -92,123 +92,6 @@ func determineNumberOfWorkers(logRate int, logSize int) int {
 	return numWorkers
 }
 
-// StartTest initiates or updates a load test.
-// controller.go
-
-// StartTest initiates or updates a load test.
-func (c *LoadGenController) StartTest(ctx context.Context, test *models.Test) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Assign default values based on destination type before validation.
-	c.assignDefaults(test)
-
-	// Validate the test configuration.
-	if err := c.Validator.Struct(test); err != nil {
-		c.Logger.Errorf("Validation failed for test %s: %v", test.TestID, err)
-		return fmt.Errorf("validation failed: %w", err)
-	}
-
-	// Access MongoDB collection and check for an existing test.
-	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
-	filter := bson.M{"testID": test.TestID}
-
-	var existingTest models.Test
-	err := collection.FindOne(ctx, filter).Decode(&existingTest)
-	isNewTest := errors.Is(err, mongo.ErrNoDocuments)
-
-	if isNewTest {
-		// Set a unique TestID and initialize test status and timestamps.
-		if test.TestID == "" {
-			test.TestID = uuid.New().String()
-		}
-		test.Status = "Running"
-		test.CreatedAt, test.UpdatedAt = time.Now(), time.Now()
-
-		// Insert the new test into the database.
-		_, err = collection.InsertOne(ctx, test)
-		if err != nil {
-			c.Logger.Errorf("Failed to insert test %s: %v", test.TestID, err)
-			return fmt.Errorf("failed to insert test: %w", err)
-		}
-		c.Logger.Infof("Test %s started and inserted as new", test.TestID)
-	} else {
-		// If the test already exists, ensure it's in a startable state.
-		if existingTest.Status == "Running" {
-			return fmt.Errorf("test with ID %s is already running", test.TestID)
-		}
-		if existingTest.Status != "Cancelled" && existingTest.Status != "Completed" && existingTest.Status != "Error" {
-			return fmt.Errorf("test with ID %s cannot be started in its current state: %s", test.TestID, existingTest.Status)
-		}
-
-		// Update the existing test's configuration and set it to "Running".
-		update := bson.M{
-			"$set": bson.M{
-				"logRate":       test.LogRate,
-				"metricsRate":   test.MetricsRate,
-				"traceRate":     test.TraceRate,
-				"logSize":       test.LogSize,
-				"duration":      test.Duration,
-				"status":        "Running",
-				"updatedAt":     time.Now(),
-				"completedAt":   time.Time{},
-				"scheduledTime": time.Time{},
-			},
-		}
-
-		_, err = collection.UpdateOne(ctx, filter, update)
-		if err != nil {
-			c.Logger.Errorf("Failed to update test %s: %v", test.TestID, err)
-			return fmt.Errorf("failed to update test: %w", err)
-		}
-		c.Logger.Infof("Test %s configuration updated and started", test.TestID)
-	}
-
-	// **Key Change**: Derive loadCtx from context.Background() to prevent premature cancellation.
-	loadCtx, cancel := context.WithCancel(context.Background())
-
-	// Initialize WorkerPool for load generation.
-	numWorkers := determineNumberOfWorkers(test.LogRate, test.LogSize)
-	batchSize := 1000                    // Customize as needed.
-	batchDelay := 100 * time.Millisecond // Adjust as necessary.
-
-	wp, err := NewWorkerPool(numWorkers, test.Destination.FilePath, c.Logger, batchSize, batchDelay)
-	if err != nil {
-		c.Logger.Errorf("Failed to initialize WorkerPool for test %s: %v", test.TestID, err)
-		cancel()
-		return fmt.Errorf("failed to initialize WorkerPool: %w", err)
-	}
-
-	// Register the test with its CancelFunc and WorkerPool.
-	c.tests[test.TestID] = &TestTask{
-		CancelFunc: cancel,
-		WorkerPool: wp,
-	}
-
-	// Start the load generation in a new goroutine.
-	go func() {
-		defer func() {
-			// Shutdown resources and log upon task completion or error.
-			cancel()
-			err := wp.Shutdown()
-			if err != nil {
-				c.Logger.Errorf("Failed to shutdown WorkerPool for test %s: %v", test.TestID, err)
-			}
-		}()
-
-		// Generate load; handle any errors encountered during the process.
-		if err := c.generateLoad(loadCtx, test, wp); err != nil {
-			c.Logger.Errorf("Load generation for test %s failed: %v", test.TestID, err)
-			c.updateTestStatus(context.Background(), test.TestID, "Error")
-		} else {
-			c.updateTestStatus(context.Background(), test.TestID, "Completed")
-		}
-	}()
-
-	c.Logger.Infof("Load generation task started for test %s with %d workers", test.TestID, numWorkers)
-	return nil
-}
-
 // assignDefaults sets default values based on destination type and other properties.
 func (c *LoadGenController) assignDefaults(test *models.Test) {
 	switch test.Destination.Type {
@@ -259,8 +142,154 @@ func (c *LoadGenController) assignDefaults(test *models.Test) {
 	}
 }
 
+// StartTest initiates or updates a load test.
+func (c *LoadGenController) StartTest(ctx context.Context, test *models.Test) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Assign default values based on destination type before validation.
+	c.assignDefaults(test)
+
+	// Validate the test configuration.
+	if err := c.Validator.Struct(test); err != nil {
+		c.Logger.Errorf("Validation failed for test %s: %v", test.TestID, err)
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Access MongoDB collection and check for an existing test.
+	collection := c.MongoClient.Database(c.Config.MongoDB).Collection("tests")
+	filter := bson.M{"testID": test.TestID}
+
+	var existingTest models.Test
+	err := collection.FindOne(ctx, filter).Decode(&existingTest)
+	isNewTest := errors.Is(err, mongo.ErrNoDocuments)
+
+	if isNewTest {
+		// Set a unique TestID and initialize test status and timestamps.
+		if test.TestID == "" {
+			test.TestID = uuid.New().String()
+		}
+		test.Status = "Running"
+		test.CreatedAt, test.UpdatedAt = time.Now(), time.Now()
+
+		// Insert the new test into the database.
+		_, err = collection.InsertOne(ctx, test)
+		if err != nil {
+			c.Logger.Errorf("Failed to insert test %s: %v", test.TestID, err)
+			return fmt.Errorf("failed to insert test: %w", err)
+		}
+		c.Logger.Infof("Test %s started and inserted as new", test.TestID)
+	} else {
+		// Ensure the test is in a startable state.
+		if existingTest.Status == "Running" {
+			return fmt.Errorf("test with ID %s is already running", test.TestID)
+		}
+		if existingTest.Status != "Cancelled" && existingTest.Status != "Completed" && existingTest.Status != "Error" {
+			return fmt.Errorf("test with ID %s cannot be started in its current state: %s", test.TestID, existingTest.Status)
+		}
+
+		// Update the existing test's configuration and set it to "Running".
+		update := bson.M{
+			"$set": bson.M{
+				"logRate":       test.LogRate,
+				"metricsRate":   test.MetricsRate,
+				"traceRate":     test.TraceRate,
+				"logSize":       test.LogSize,
+				"duration":      test.Duration,
+				"status":        "Running",
+				"updatedAt":     time.Now(),
+				"completedAt":   time.Time{},
+				"scheduledTime": time.Time{},
+			},
+		}
+
+		_, err = collection.UpdateOne(ctx, filter, update)
+		if err != nil {
+			c.Logger.Errorf("Failed to update test %s: %v", test.TestID, err)
+			return fmt.Errorf("failed to update test: %w", err)
+		}
+		c.Logger.Infof("Test %s configuration updated and started", test.TestID)
+	}
+
+	// Determine Destination Type and Endpoint
+	destinationType := FileDestination
+	destinationValue := ""
+
+	if test.Destination.Type == "http" {
+		destinationType = HTTPDestination
+		destinationValue = test.Destination.Endpoint
+		if destinationValue == "" {
+			c.Logger.Errorf("HTTP endpoint must be specified for HTTP destination")
+			return fmt.Errorf("HTTP endpoint must be specified for HTTP destination")
+		}
+	} else if test.Destination.Type == "file" {
+		destinationType = FileDestination
+		destinationValue = test.Destination.FilePath
+		if destinationValue == "" {
+			c.Logger.Errorf("filePath must be specified for file destination")
+			return fmt.Errorf("filePath must be specified for file destination")
+		}
+	} else {
+		c.Logger.Errorf("Unsupported destination type: %s", test.Destination.Type)
+		return fmt.Errorf("unsupported destination type: %s", test.Destination.Type)
+	}
+
+	// Create a self-contained cancellable context based on the test's duration
+	loadCtx, cancel := context.WithTimeout(context.Background(), time.Duration(test.Duration)*time.Second)
+
+	// Initialize WorkerPool based on the destination type
+	numWorkers := determineNumberOfWorkers(test.LogRate, test.LogSize)
+	batchSize := 1000                    // Customize as needed
+	batchDelay := 100 * time.Millisecond // Adjust as necessary
+
+	// Log initialization details
+	if destinationType == FileDestination {
+		c.Logger.Infof("Initializing WorkerPool with filePath: %s for test %s", destinationValue, test.TestID)
+	} else {
+		c.Logger.Infof("Initializing WorkerPool with httpEndpoint: %s for test %s", destinationValue, test.TestID)
+	}
+
+	wp, err := NewWorkerPool(numWorkers, destinationType, destinationValue, c.Logger, batchSize, batchDelay)
+	if err != nil {
+		c.Logger.Errorf("Failed to initialize WorkerPool for test %s: %v", test.TestID, err)
+		cancel()
+		return fmt.Errorf("failed to initialize WorkerPool: %w", err)
+	}
+
+	// Register the test with its CancelFunc and WorkerPool
+	c.tests[test.TestID] = &TestTask{
+		CancelFunc: cancel,
+		WorkerPool: wp,
+	}
+
+	// Start the load generation in a new goroutine
+	go func() {
+		defer func() {
+			// Shutdown resources and log upon task completion or error
+			err := wp.Shutdown()
+			if err != nil {
+				c.Logger.Errorf("Failed to shutdown WorkerPool for test %s: %v", test.TestID, err)
+			}
+			cancel()
+		}()
+
+		// Generate load; handle any errors encountered during the process
+		if err := c.generateLoad(loadCtx, test, wp); err != nil {
+			c.Logger.Errorf("Load generation for test %s failed: %v", test.TestID, err)
+			c.updateTestStatus(context.Background(), test.TestID, "Error")
+		} else {
+			c.updateTestStatus(context.Background(), test.TestID, "Completed")
+		}
+	}()
+
+	c.Logger.Infof("Load generation task started for test %s with %d workers", test.TestID, numWorkers)
+	return nil
+}
+
 // generateLoad simulates load generation based on test configuration.
 // It generates logs, metrics, and traces as per the configured rates.
+// controller.go
+
 // controller.go
 
 func (c *LoadGenController) generateLoad(ctx context.Context, test *models.Test, wp *WorkerPool) error {
@@ -308,10 +337,20 @@ func (c *LoadGenController) generateLoad(ctx context.Context, test *models.Test,
 		select {
 		case <-done:
 			c.Logger.Infof("Load test duration completed: %s", test.TestID)
+			// Optionally, log final counts if HTTP destination
+			if test.Destination.Type == "http" {
+				successes, failures := wp.GetCounts()
+				c.Logger.Infof("Load test %s completed. Successes: %d, Failures: %d", test.TestID, successes, failures)
+			}
 			return nil
 
 		case <-ctx.Done():
 			c.Logger.Infof("Load test context cancelled: %s, Reason: %v", test.TestID, ctx.Err())
+			// Optionally, log final counts if HTTP destination
+			if test.Destination.Type == "http" {
+				successes, failures := wp.GetCounts()
+				c.Logger.Infof("Load test %s cancelled. Successes: %d, Failures: %d", test.TestID, successes, failures)
+			}
 			return ctx.Err()
 
 		case <-logTicker.C:
@@ -332,6 +371,10 @@ func (c *LoadGenController) generateLoad(ctx context.Context, test *models.Test,
 			if generatedLogs%100000 == 0 {
 				elapsed := time.Since(startTime).Seconds()
 				c.Logger.Infof("Generated %d logs for test %s in %.2f seconds", generatedLogs, test.TestID, elapsed)
+				if test.Destination.Type == "http" {
+					successes, failures := wp.GetCounts()
+					c.Logger.Infof("HTTP Logs - Successes: %d, Failures: %d", successes, failures)
+				}
 			}
 
 		case <-metricTicker.C:
